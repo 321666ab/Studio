@@ -7,6 +7,8 @@ import type {
   AgentTask,
   AgentTaskEvent,
   AgentTaskRequest,
+  AgentSkill,
+  AgentContextEstimate,
   ApplyChangesRequest,
   ApplyChangesResult,
   IpcResult,
@@ -21,6 +23,8 @@ import { resolveWithinRoot } from './security.js'
 import { SettingsStore, defaultSettingsPath } from './settings.js'
 import { AgentAvailabilityCache, detectLoginShellPath } from './agentAvailability.js'
 import { AgentTaskManager } from './agentTaskManager.js'
+import { ClaudeCapabilityService } from './claudeCapability.js'
+import { estimateContext } from './contextService.js'
 import {
   PREVIEW_SCHEME,
   registerPreviewProtocol,
@@ -39,10 +43,12 @@ let quickLookService: QuickLookService | null = null
 let settingsStore: SettingsStore | null = null
 let agentAvailability: AgentAvailabilityCache | null = null
 let agentTaskManager: AgentTaskManager | null = null
+let claudeCapabilities: ClaudeCapabilityService | null = null
 // Cached settings-derived knobs read by the agent manager on each run.
 let lastBypass = true
 let lastTimeoutMs = 10 * 60 * 1000
 let lastModels = { claude: '', codex: '' }
+let lastMaxBudgetUsd = 2
 let loginShellPath = process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'
 
 registerPreviewSchemePrivileges()
@@ -101,6 +107,7 @@ function registerHandlers(): void {
       ptyManager?.disposeAll()
       await quickLookService?.clear()
       await agentTaskManager?.disposeAll()
+      claudeCapabilities?.invalidate()
       return ok(info)
     } catch (err) {
       return fail(err)
@@ -167,20 +174,38 @@ function registerHandlers(): void {
       const root = projectState.requireRoot()
       const safe = await resolveWithinRoot(root, targetPath)
       const relative = path.relative(root, safe).split(path.sep).join('/') || '.'
-      await new Promise<void>((resolve) => {
+      const action = await new Promise<'copy-relative-path' | 'add-ai-context' | null>((resolve) => {
         const menu = Menu.buildFromTemplate([
           {
             label: '复制相对路径',
-            click: () => clipboard.writeText(relative)
+            click: () => {
+              clipboard.writeText(relative)
+              resolve('copy-relative-path')
+            }
+          },
+          {
+            label: '添加到 AI 上下文',
+            click: () => resolve('add-ai-context')
           }
         ])
-        menu.popup({ window: mainWindow ?? undefined, callback: resolve })
+        menu.popup({ window: mainWindow ?? undefined, callback: () => resolve(null) })
       })
-      return ok(undefined)
+      return ok(action)
     } catch (err) {
       return fail(err)
     }
   })
+
+  ipcMain.handle(
+    IPC.fs.estimateContext,
+    async (_e, paths: string[]): Promise<IpcResult<AgentContextEstimate>> => {
+      try {
+        return ok(await estimateContext(projectState.requireRoot(), paths))
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
 
   // --- Settings ----------------------------------------------------------
   ipcMain.handle(IPC.settings.get, async (): Promise<IpcResult<Settings>> => {
@@ -199,7 +224,36 @@ function registerHandlers(): void {
         lastBypass = next.ai.bypassPermissions
         lastTimeoutMs = next.ai.taskTimeoutMs
         lastModels = { claude: next.ai.claudeModel, codex: next.ai.codexModel }
+        lastMaxBudgetUsd = next.ai.maxBudgetUsd
         return ok(next)
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
+
+  // --- Skills ------------------------------------------------------------
+  ipcMain.handle(IPC.skills.list, async (): Promise<IpcResult<AgentSkill[]>> => {
+    try {
+      return ok(await requireCapabilities().list())
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(IPC.skills.refresh, async (): Promise<IpcResult<AgentSkill[]>> => {
+    try {
+      return ok(await requireCapabilities().refresh())
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.skills.details,
+    async (_e, skillId: string): Promise<IpcResult<AgentSkill | null>> => {
+      try {
+        return ok(await requireCapabilities().details(skillId))
       } catch (err) {
         return fail(err)
       }
@@ -290,6 +344,11 @@ function requireAgentManager(): AgentTaskManager {
   return agentTaskManager
 }
 
+function requireCapabilities(): ClaudeCapabilityService {
+  if (!claudeCapabilities) throw new Error('Skill 能力服务尚未就绪')
+  return claudeCapabilities
+}
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -357,22 +416,29 @@ app.whenReady().then(async () => {
     await projectState.set(initialSettings.general.lastProjectPath).catch(() => undefined)
   }
   agentAvailability = new AgentAvailabilityCache()
+  const getAgentExecutable = async (provider: 'claude' | 'codex'): Promise<string> => {
+    const result = (await requireAvailability().get(Date.now())).find(
+      (item) => item.provider === provider
+    )
+    if (!result?.available || !result.path) {
+      throw new Error(
+        `未检测到 ${provider === 'claude' ? 'Claude' : 'Codex'} CLI，请先在终端完成安装和登录`
+      )
+    }
+    return result.path
+  }
+  claudeCapabilities = new ClaudeCapabilityService(
+    () => projectState.get()?.root ?? null,
+    () => getAgentExecutable('claude')
+  )
   agentTaskManager = new AgentTaskManager({
     getRoot: () => projectState.requireRoot(),
     getBypass: () => lastBypass,
     getTimeoutMs: () => lastTimeoutMs,
     getModel: (provider) => lastModels[provider],
-    getExecutable: async (provider) => {
-      const result = (await requireAvailability().get(Date.now())).find(
-        (item) => item.provider === provider
-      )
-      if (!result?.available || !result.path) {
-        throw new Error(
-          `未检测到 ${provider === 'claude' ? 'Claude' : 'Codex'} CLI，请先在终端完成安装和登录`
-        )
-      }
-      return result.path
-    },
+    getMaxBudgetUsd: () => lastMaxBudgetUsd,
+    getSkill: (skillId) => requireCapabilities().details(skillId),
+    getExecutable: getAgentExecutable,
     getLoginPath: () => loginShellPath,
     emit: (event: AgentTaskEvent) => mainWindow?.webContents.send(IPC.agent.onEvent, event)
   })
@@ -383,6 +449,7 @@ app.whenReady().then(async () => {
     claude: initialSettings.ai.claudeModel,
     codex: initialSettings.ai.codexModel
   }
+  lastMaxBudgetUsd = initialSettings.ai.maxBudgetUsd
 
   registerHandlers()
   createWindow()

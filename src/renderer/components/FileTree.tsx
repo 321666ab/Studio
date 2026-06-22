@@ -8,13 +8,20 @@ interface TreeNodeProps {
   depth: number
   selectedPath: string | null
   onSelectFile: (entry: DirEntry) => void
+  onAddToAiContext: (entry: DirEntry) => void
 }
 
 /**
  * One row of the lazy tree. Directories fetch their children on first expand and
  * cache them; files report selection upward.
  */
-function TreeNode({ entry, depth, selectedPath, onSelectFile }: TreeNodeProps): JSX.Element {
+function TreeNode({
+  entry,
+  depth,
+  selectedPath,
+  onSelectFile,
+  onAddToAiContext
+}: TreeNodeProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState<DirEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -50,7 +57,9 @@ function TreeNode({ entry, depth, selectedPath, onSelectFile }: TreeNodeProps): 
         onClick={() => (entry.isDirectory ? toggle() : onSelectFile(entry))}
         onContextMenu={(event) => {
           event.preventDefault()
-          void api.showPathContextMenu(entry.path)
+          void api.showPathContextMenu(entry.path).then((action) => {
+            if (action === 'add-ai-context') onAddToAiContext(entry)
+          })
         }}
         title={entry.name}
       >
@@ -98,6 +107,7 @@ function TreeNode({ entry, depth, selectedPath, onSelectFile }: TreeNodeProps): 
               depth={depth + 1}
               selectedPath={selectedPath}
               onSelectFile={onSelectFile}
+              onAddToAiContext={onAddToAiContext}
             />
           ))}
           {children?.length === 0 && (
@@ -118,9 +128,15 @@ interface FileTreeProps {
   roots: DirEntry[]
   selectedPath: string | null
   onSelectFile: (entry: DirEntry) => void
+  onAddToAiContext: (entry: DirEntry) => void
 }
 
-export function FileTree({ roots, selectedPath, onSelectFile }: FileTreeProps): JSX.Element {
+export function FileTree({
+  roots,
+  selectedPath,
+  onSelectFile,
+  onAddToAiContext
+}: FileTreeProps): JSX.Element {
   return (
     <div className="tree">
       {roots.map((entry) => (
@@ -130,6 +146,7 @@ export function FileTree({ roots, selectedPath, onSelectFile }: FileTreeProps): 
           depth={0}
           selectedPath={selectedPath}
           onSelectFile={onSelectFile}
+          onAddToAiContext={onAddToAiContext}
         />
       ))}
     </div>

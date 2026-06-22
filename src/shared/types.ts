@@ -93,6 +93,8 @@ export interface AiSettings {
   bypassPermissions: boolean
   /** Hard ceiling on a single task's wall-clock runtime, in milliseconds. */
   taskTimeoutMs: number
+  /** Maximum provider spend allowed for one Claude task; 0 disables the limit. */
+  maxBudgetUsd: number
 }
 
 export interface NotificationSettings {
@@ -153,6 +155,55 @@ export interface AgentAvailability {
 }
 
 // ---------------------------------------------------------------------------
+// Agent skills and context
+// ---------------------------------------------------------------------------
+
+export type AgentSkillSource = 'bundled' | 'user' | 'project' | 'plugin'
+
+export interface AgentSkill {
+  id: string
+  command: string
+  name: string
+  description: string
+  source: AgentSkillSource
+  pluginName?: string
+  path?: string
+  estimatedTokens?: number
+  argumentHint?: string
+  allowedTools?: string[]
+  available: boolean
+}
+
+export interface AgentContextItem {
+  path: string
+  relativePath: string
+  isDirectory: boolean
+  size: number
+  estimatedTokens: number
+  truncated: boolean
+  binary: boolean
+}
+
+export interface AgentContextEstimate {
+  items: AgentContextItem[]
+  totalBytes: number
+  estimatedTokens: number
+  fileCount: number
+}
+
+export interface AgentTaskSkill {
+  id: string
+  command: string
+  source: AgentSkillSource
+  name?: string
+}
+
+export interface AgentTaskContext {
+  paths: string[]
+  estimatedTokens: number
+}
+
+// ---------------------------------------------------------------------------
 // Agent tasks
 // ---------------------------------------------------------------------------
 
@@ -170,6 +221,8 @@ export interface AgentTaskRequest {
   provider: AgentProvider
   /** The natural-language instruction handed to the agent. */
   prompt: string
+  skill?: AgentTaskSkill
+  context?: AgentTaskContext
 }
 
 export interface ChangedFile {
@@ -201,6 +254,8 @@ export interface AgentTask {
   endedAt?: number
   exitCode?: number
   error?: string
+  skill?: AgentTaskSkill
+  context?: AgentTaskContext
   changedFiles: ChangedFile[]
 }
 
@@ -251,7 +306,8 @@ export const IPC = {
     writeMarkdown: 'fs:writeMarkdown',
     openPath: 'fs:openPath',
     quickLook: 'fs:quickLook',
-    showPathContextMenu: 'fs:showPathContextMenu'
+    showPathContextMenu: 'fs:showPathContextMenu',
+    estimateContext: 'fs:estimateContext'
   },
   pty: {
     create: 'pty:create',
@@ -265,6 +321,11 @@ export const IPC = {
     get: 'settings:get',
     update: 'settings:update',
     onOpen: 'settings:onOpen'
+  },
+  skills: {
+    list: 'skills:list',
+    refresh: 'skills:refresh',
+    details: 'skills:details'
   },
   agent: {
     availability: 'agent:availability',
@@ -288,7 +349,10 @@ export interface StudioApi {
   writeMarkdown: (filePath: string, content: string) => Promise<IpcResult<WriteFileResult>>
   openPath: (targetPath: string) => Promise<IpcResult<void>>
   quickLook: (filePath: string) => Promise<IpcResult<QuickLookPreview>>
-  showPathContextMenu: (targetPath: string) => Promise<IpcResult<void>>
+  showPathContextMenu: (
+    targetPath: string
+  ) => Promise<IpcResult<'copy-relative-path' | 'add-ai-context' | null>>
+  estimateContext: (paths: string[]) => Promise<IpcResult<AgentContextEstimate>>
   pty: {
     create: (options: PtyCreateOptions) => Promise<IpcResult<void>>
     input: (terminalId: string, data: string) => void
@@ -301,6 +365,11 @@ export interface StudioApi {
     get: () => Promise<IpcResult<Settings>>
     update: (patch: SettingsPatch) => Promise<IpcResult<Settings>>
     onOpen: (listener: () => void) => () => void
+  }
+  skills: {
+    list: () => Promise<IpcResult<AgentSkill[]>>
+    refresh: () => Promise<IpcResult<AgentSkill[]>>
+    details: (skillId: string) => Promise<IpcResult<AgentSkill | null>>
   }
   agent: {
     availability: () => Promise<IpcResult<AgentAvailability[]>>

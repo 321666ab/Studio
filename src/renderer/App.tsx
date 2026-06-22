@@ -43,12 +43,14 @@ export function App(): JSX.Element {
   const [openRequest, setOpenRequest] = useState<OpenDocumentRequest | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [agentAvailability, setAgentAvailability] = useState<AgentAvailability[]>([])
+  const [aiContextPaths, setAiContextPaths] = useState<string[]>([])
 
   const loadRoots = useCallback(async (proj: ProjectInfo) => {
     setLoading(true)
     setTreeError(null)
     setSelected(null)
     setOpenRequest(null)
+    setAiContextPaths([])
     try {
       setRoots(await api.readDir(proj.root))
     } catch (e) {
@@ -113,7 +115,32 @@ export function App(): JSX.Element {
   const selectFile = useCallback((file: DirEntry) => {
     setSelected(file)
     setOpenRequest({ file, nonce: Date.now() })
+    setAiContextPaths((current) => (current.length === 0 ? [file.path] : current))
   }, [])
+
+  const addToAiContext = useCallback((entry: DirEntry) => {
+    setAiContextPaths((current) =>
+      current.includes(entry.path) ? current : [...current, entry.path]
+    )
+  }, [])
+
+  const removeFromAiContext = useCallback((targetPath: string) => {
+    setAiContextPaths((current) => current.filter((item) => item !== targetPath))
+  }, [])
+
+  const openAgentPath = useCallback(
+    (relativePath: string) => {
+      if (!project) return
+      const absolute = `${project.root.replace(/\/$/, '')}/${relativePath.replace(/^\//, '')}`
+      selectFile({
+        name: baseName(relativePath),
+        path: absolute,
+        isDirectory: false,
+        isSymbolicLink: false
+      })
+    },
+    [project, selectFile]
+  )
 
   // Keyboard shortcuts: ⌘B toggles left, ⌘⌥B toggles right.
   useEffect(() => {
@@ -185,6 +212,7 @@ export function App(): JSX.Element {
             selectedPath={selected?.path ?? null}
             onOpenProject={openProject}
             onSelectFile={selectFile}
+            onAddToAiContext={addToAiContext}
             onCollapse={panels.toggleLeft}
             onOpenSettings={() => setSettingsOpen(true)}
           />
@@ -220,9 +248,11 @@ export function App(): JSX.Element {
         >
           <RightPanel
             project={project}
-            selectedPath={selected?.path ?? null}
             settings={settings}
             availability={agentAvailability}
+            contextPaths={aiContextPaths}
+            onRemoveContextPath={removeFromAiContext}
+            onOpenDocumentPath={openAgentPath}
             onCollapse={panels.toggleRight}
           />
         </div>

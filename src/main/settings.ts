@@ -30,7 +30,8 @@ export const DEFAULT_SETTINGS: Settings = {
     claudeModel: '',
     codexModel: '',
     bypassPermissions: true,
-    taskTimeoutMs: 10 * 60 * 1000
+    taskTimeoutMs: 10 * 60 * 1000,
+    maxBudgetUsd: 2
   },
   notifications: {
     notifyOnTaskComplete: true,
@@ -107,7 +108,8 @@ export function normalizeSettings(input: unknown): Settings {
       claudeModel: asShortString(ai.claudeModel, d.ai.claudeModel),
       codexModel: asShortString(ai.codexModel, d.ai.codexModel),
       bypassPermissions: asBoolean(ai.bypassPermissions, d.ai.bypassPermissions),
-      taskTimeoutMs: clampNumber(ai.taskTimeoutMs, d.ai.taskTimeoutMs, 10_000, 60 * 60 * 1000)
+      taskTimeoutMs: clampNumber(ai.taskTimeoutMs, d.ai.taskTimeoutMs, 10_000, 60 * 60 * 1000),
+      maxBudgetUsd: clampNumber(ai.maxBudgetUsd, d.ai.maxBudgetUsd, 0, 100)
     },
     notifications: {
       notifyOnTaskComplete: asBoolean(

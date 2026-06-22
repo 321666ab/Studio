@@ -21,11 +21,13 @@ describe('normalizeSettings', () => {
   it('clamps out-of-range numbers', () => {
     const result = normalizeSettings({
       appearance: { panelOpacity: 5, blur: -10 },
-      terminal: { fontSize: 999 }
+      terminal: { fontSize: 999 },
+      ai: { maxBudgetUsd: 999 }
     })
     expect(result.appearance.panelOpacity).toBe(0.96)
     expect(result.appearance.blur).toBe(0)
     expect(result.terminal.fontSize).toBe(24)
+    expect(result.ai.maxBudgetUsd).toBe(100)
   })
 
   it('rejects unknown enum values, falling back to default', () => {

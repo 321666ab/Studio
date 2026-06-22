@@ -237,6 +237,15 @@ export function SettingsPanel({
                           onChange({ ai: { taskTimeoutMs: minutes * 60_000 } })
                         }
                       />
+                      <SliderRow
+                        label="Claude 单任务预算"
+                        value={settings.ai.maxBudgetUsd}
+                        min={0}
+                        max={20}
+                        step={0.5}
+                        suffix=" USD"
+                        onChange={(maxBudgetUsd) => onChange({ ai: { maxBudgetUsd } })}
+                      />
                     </SettingsGroup>
                   </>
                 )}

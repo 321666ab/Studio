@@ -32,9 +32,11 @@ interface TerminalTab {
 
 interface RightPanelProps {
   project: ProjectInfo | null
-  selectedPath: string | null
   settings: Settings
   availability: AgentAvailability[]
+  contextPaths: string[]
+  onRemoveContextPath: (path: string) => void
+  onOpenDocumentPath: (relativePath: string) => void
   onCollapse: () => void
 }
 
@@ -48,9 +50,11 @@ const STATUS_LABEL: Record<TerminalTaskStatus, string> = {
 
 export function RightPanel({
   project,
-  selectedPath,
   settings,
   availability,
+  contextPaths,
+  onRemoveContextPath,
+  onOpenDocumentPath,
   onCollapse
 }: RightPanelProps): JSX.Element {
   const [mode, setMode] = useState<'tasks' | 'terminal'>('tasks')
@@ -267,9 +271,11 @@ export function RightPanel({
       {mode === 'tasks' ? (
         <TaskWorkspace
           projectRoot={project?.root ?? null}
-          selectedPath={selectedPath}
           settings={settings}
           availability={availability}
+          contextPaths={contextPaths}
+          onRemoveContextPath={onRemoveContextPath}
+          onOpenDocumentPath={onOpenDocumentPath}
         />
       ) : <div className="tab-body">
         {!activeId && <PanelChooser onChoose={openTerminal} />}

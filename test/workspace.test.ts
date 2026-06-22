@@ -121,4 +121,33 @@ describe('prepareWorkspace', () => {
       await fs.rm(root, { recursive: true, force: true })
     }
   })
+
+  it('uses a context-scoped copy for a large non-git project', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-large-scope-test-'))
+    try {
+      await fs.writeFile(path.join(root, 'selected.md'), 'selected')
+      await fs.writeFile(path.join(root, 'huge.bin'), '')
+      await fs.truncate(path.join(root, 'huge.bin'), 501 * 1024 * 1024)
+      await fs.mkdir(path.join(root, '.claude', 'skills', 'review'), { recursive: true })
+      await fs.writeFile(
+        path.join(root, '.claude', 'skills', 'review', 'SKILL.md'),
+        '---\nname: review\n---\n'
+      )
+
+      const workspace = await prepareWorkspace(root, ['selected.md'])
+      try {
+        await expect(
+          fs.readFile(path.join(workspace.path, 'selected.md'), 'utf-8')
+        ).resolves.toBe('selected')
+        await expect(fs.stat(path.join(workspace.path, 'huge.bin'))).rejects.toThrow()
+        await expect(
+          fs.stat(path.join(workspace.path, '.claude', 'skills', 'review', 'SKILL.md'))
+        ).resolves.toBeDefined()
+      } finally {
+        await workspace.cleanup()
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
 })

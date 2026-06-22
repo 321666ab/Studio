@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Bot,
   Check,
   ChevronDown,
   CircleAlert,
+  FolderOpen,
   FileText,
   Play,
+  RefreshCw,
   RotateCcw,
+  Search,
   ShieldAlert,
   Square,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react'
 import type {
   AgentAvailability,
+  AgentContextEstimate,
   AgentProvider,
+  AgentSkill,
   AgentTask,
   AgentTaskEvent,
   Settings
@@ -39,16 +45,20 @@ const TASK_STATUS: Record<AgentTask['status'], string> = {
 
 interface TaskWorkspaceProps {
   projectRoot: string | null
-  selectedPath: string | null
   settings: Settings
   availability: AgentAvailability[]
+  contextPaths: string[]
+  onRemoveContextPath: (path: string) => void
+  onOpenDocumentPath: (relativePath: string) => void
 }
 
 export function TaskWorkspace({
   projectRoot,
-  selectedPath,
   settings,
-  availability
+  availability,
+  contextPaths,
+  onRemoveContextPath,
+  onOpenDocumentPath
 }: TaskWorkspaceProps): JSX.Element {
   const [provider, setProvider] = useState<AgentProvider>(settings.ai.defaultProvider)
   const [prompt, setPrompt] = useState('')
@@ -57,11 +67,68 @@ export function TaskWorkspace({
   const [selectedChanges, setSelectedChanges] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [skills, setSkills] = useState<AgentSkill[]>([])
+  const [skillsLoading, setSkillsLoading] = useState(false)
+  const [skillSearch, setSkillSearch] = useState('')
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(() =>
+    localStorage.getItem('studio.recentSkillId')
+  )
+  const [contextEstimate, setContextEstimate] = useState<AgentContextEstimate | null>(null)
+  const [contextError, setContextError] = useState<string | null>(null)
   const outputCounter = useRef(0)
   const outputBuffer = useRef({ stdout: '', stderr: '' })
   const activeTaskId = useRef<string | null>(null)
 
   useEffect(() => setProvider(settings.ai.defaultProvider), [settings.ai.defaultProvider])
+
+  useEffect(() => {
+    let cancelled = false
+    setSkillsLoading(true)
+    void api
+      .listSkills()
+      .then((items) => {
+        if (cancelled) return
+        setSkills(items)
+        setSelectedSkillId((current) =>
+          current && items.some((skill) => skill.id === current) ? current : null
+        )
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : '读取 Skill 失败')
+      })
+      .finally(() => {
+        if (!cancelled) setSkillsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectRoot])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!projectRoot || contextPaths.length === 0) {
+      setContextEstimate(null)
+      setContextError(null)
+      return
+    }
+    void api
+      .estimateContext(contextPaths)
+      .then((estimate) => {
+        if (!cancelled) {
+          setContextEstimate(estimate)
+          setContextError(null)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setContextEstimate(null)
+          setContextError(error instanceof Error ? error.message : '上下文分析失败')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [contextPaths, projectRoot])
 
   useEffect(() => {
     activeTaskId.current = task?.taskId ?? null
@@ -151,19 +218,51 @@ export function TaskWorkspace({
     settings.notifications.soundEnabled
   ])
 
-  const relativePath = useMemo(() => {
-    if (!selectedPath || !projectRoot) return null
-    const prefix = projectRoot.endsWith('/') ? projectRoot : `${projectRoot}/`
-    return selectedPath.startsWith(prefix) ? selectedPath.slice(prefix.length) : selectedPath
-  }, [projectRoot, selectedPath])
-
   const providerState = availability.find((item) => item.provider === provider)
+  const selectedSkill = skills.find((skill) => skill.id === selectedSkillId) ?? null
+  const filteredSkills = skills.filter((skill) => {
+    const query = skillSearch.trim().toLowerCase()
+    return (
+      !query ||
+      skill.name.toLowerCase().includes(query) ||
+      skill.description.toLowerCase().includes(query) ||
+      skill.command.toLowerCase().includes(query)
+    )
+  })
+  const contextOverBudget = (contextEstimate?.estimatedTokens ?? 0) > 24_000
   const canStart =
     !!projectRoot &&
-    prompt.trim().length > 0 &&
+    (prompt.trim().length > 0 || !!selectedSkill) &&
     providerState?.available !== false &&
+    !contextOverBudget &&
+    !contextError &&
     task?.status !== 'running' &&
     task?.status !== 'preparing'
+
+  const chooseSkill = (skill: AgentSkill | null): void => {
+    setSelectedSkillId(skill?.id ?? null)
+    if (skill) {
+      setProvider('claude')
+      localStorage.setItem('studio.recentSkillId', skill.id)
+    } else {
+      localStorage.removeItem('studio.recentSkillId')
+    }
+  }
+
+  const refreshSkills = async (): Promise<void> => {
+    setSkillsLoading(true)
+    try {
+      const items = await api.refreshSkills()
+      setSkills(items)
+      setSelectedSkillId((current) =>
+        current && items.some((skill) => skill.id === current) ? current : null
+      )
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '刷新 Skill 失败')
+    } finally {
+      setSkillsLoading(false)
+    }
+  }
 
   const startTask = async (): Promise<void> => {
     if (!canStart) return
@@ -179,6 +278,18 @@ export function TaskWorkspace({
       prompt: prompt.trim(),
       status: 'pending',
       createdAt: Date.now(),
+      skill: selectedSkill
+        ? {
+            id: selectedSkill.id,
+            command: selectedSkill.command,
+            source: selectedSkill.source,
+            name: selectedSkill.name
+          }
+        : undefined,
+      context: {
+        paths: contextEstimate?.items.map((item) => item.relativePath) ?? [],
+        estimatedTokens: contextEstimate?.estimatedTokens ?? 0
+      },
       changedFiles: []
     }
     activeTaskId.current = taskId
@@ -192,13 +303,22 @@ export function TaskWorkspace({
           await Notification.requestPermission()
         }
       }
-      const context = relativePath
-        ? `\n\n当前文档：${relativePath}\n请优先检查该文件，并仅在完成任务所必需时修改项目文件。`
-        : '\n\n请在当前项目中完成任务，并尽量减少不必要的文件修改。'
       const started = await api.startAgentTask({
         taskId,
         provider,
-        prompt: `${prompt.trim()}${context}`
+        prompt: prompt.trim(),
+        skill: selectedSkill
+          ? {
+              id: selectedSkill.id,
+              command: selectedSkill.command,
+              source: selectedSkill.source,
+              name: selectedSkill.name
+            }
+          : undefined,
+        context: {
+          paths: contextPaths,
+          estimatedTokens: contextEstimate?.estimatedTokens ?? 0
+        }
       })
       setTask(started)
       setSelectedChanges(new Set())
@@ -235,6 +355,21 @@ export function TaskWorkspace({
       const summary = [`已应用 ${result.applied.length} 个文件`]
       if (result.conflicts.length) summary.push(`${result.conflicts.length} 个冲突已跳过`)
       setMessage(summary.join('，'))
+      setSelectedChanges((current) => {
+        const next = new Set(current)
+        for (const applied of result.applied) next.delete(applied)
+        return next
+      })
+      setTask((current) =>
+        current
+          ? {
+              ...current,
+              changedFiles: current.changedFiles.filter(
+                (file) => !result.applied.includes(file.path)
+              )
+            }
+          : current
+      )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '应用修改失败')
     } finally {
@@ -271,6 +406,7 @@ export function TaskWorkspace({
           <select
             aria-label="选择任务 Agent"
             value={provider}
+            disabled={!!selectedSkill}
             onChange={(event) => setProvider(event.currentTarget.value as AgentProvider)}
           >
             <option
@@ -298,27 +434,110 @@ export function TaskWorkspace({
 
       <div className="task-scroll">
         <section className="task-compose">
-          <div className="task-context">
-            {relativePath ? (
-              <span title={relativePath}>
-                <FileText size={12} />
-                {relativePath}
-              </span>
-            ) : (
-              <span className="muted">未关联当前文档</span>
-            )}
+          <div className="task-section-head">
+            <strong>能力</strong>
+            <button
+              className="icon-btn"
+              title="刷新 Claude Skills"
+              disabled={skillsLoading}
+              onClick={() => void refreshSkills()}
+            >
+              <RefreshCw size={13} />
+            </button>
           </div>
-          <div className="quick-task-grid">
-            {QUICK_TASKS.map((item) => (
-              <button key={item.label} onClick={() => setPrompt(item.prompt)}>
-                {item.label}
+          <div className="skill-search">
+            <Search size={13} />
+            <input
+              value={skillSearch}
+              placeholder="搜索 Skill…"
+              onChange={(event) => setSkillSearch(event.currentTarget.value)}
+            />
+          </div>
+          <div className="skill-list">
+            <button
+              className={`skill-card${selectedSkillId === null ? ' selected' : ''}`}
+              onClick={() => chooseSkill(null)}
+            >
+              <strong>自由任务</strong>
+              <small>直接使用自定义指令</small>
+            </button>
+            {filteredSkills.map((skill) => (
+              <button
+                key={skill.id}
+                className={`skill-card${selectedSkillId === skill.id ? ' selected' : ''}`}
+                disabled={!skill.available}
+                onClick={() => chooseSkill(skill)}
+                title={skill.description}
+              >
+                <span>
+                  <strong>{skill.name}</strong>
+                  <i>{skill.source}</i>
+                </span>
+                <small>{skill.description}</small>
               </button>
             ))}
           </div>
+
+          <div className="task-section-head context-head">
+            <strong>上下文</strong>
+            <span>
+              {contextEstimate
+                ? `${contextEstimate.fileCount} 个文件 · ${contextEstimate.estimatedTokens.toLocaleString()} / 24,000 tokens`
+                : '未添加'}
+            </span>
+          </div>
+          <div className="context-basket">
+            {contextEstimate?.items.map((item) => (
+              <div className="context-item" key={item.path}>
+                {item.isDirectory ? <FolderOpen size={13} /> : <FileText size={13} />}
+                {item.isDirectory ? (
+                  <span className="context-directory" title={item.relativePath}>
+                    {item.relativePath}
+                  </span>
+                ) : (
+                  <button
+                    title={item.relativePath}
+                    onClick={() => onOpenDocumentPath(item.relativePath)}
+                  >
+                    {item.relativePath}
+                  </button>
+                )}
+                <span>{item.estimatedTokens.toLocaleString()}</span>
+                <button
+                  className="icon-btn"
+                  title="移除上下文"
+                  onClick={() => onRemoveContextPath(item.path)}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            {contextPaths.length === 0 && (
+              <div className="context-empty">在文件树右键选择“添加到 AI 上下文”。</div>
+            )}
+          </div>
+          {contextOverBudget && (
+            <div className="task-inline-error">上下文超过 24,000 tokens，请移除部分文件。</div>
+          )}
+          {contextError && <div className="task-inline-error">{contextError}</div>}
+
+          {!selectedSkill && (
+            <div className="quick-task-grid">
+              {QUICK_TASKS.map((item) => (
+                <button key={item.label} onClick={() => setPrompt(item.prompt)}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             value={prompt}
             rows={5}
-            placeholder="描述你希望 AI 在项目中完成的任务…"
+            placeholder={
+              selectedSkill
+                ? `补充 ${selectedSkill.name} 的执行要求（可选）…`
+                : '描述你希望 AI 在项目中完成的任务…'
+            }
             onChange={(event) => setPrompt(event.currentTarget.value)}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') void startTask()
@@ -335,6 +554,11 @@ export function TaskWorkspace({
           {providerState?.available === false && (
             <div className="task-inline-error">
               未检测到 {provider === 'claude' ? 'Claude' : 'Codex'} CLI。
+            </div>
+          )}
+          {selectedSkill && (
+            <div className="task-execution-summary">
+              Claude · {selectedSkill.command} · {settings.ai.bypassPermissions ? 'bypass' : '受限权限'}
             </div>
           )}
         </section>
@@ -365,11 +589,28 @@ export function TaskWorkspace({
                 {task.error}
               </div>
             )}
+            {(task.skill || (task.context?.paths.length ?? 0) > 0) && (
+              <div className="task-run-meta">
+                {task.skill && <span>{task.skill.command}</span>}
+                {task.context?.paths.map((item) => (
+                  <button key={item} onClick={() => onOpenDocumentPath(item)}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+            )}
             {output.length > 0 && (
               <div className="task-output" aria-live="polite">
                 {output.map((line) => (
                   <p key={line.id} className={line.tone}>
-                    {line.text}
+                    {renderOutputText(
+                      line.text,
+                      [
+                        ...(task.context?.paths ?? []),
+                        ...task.changedFiles.map((file) => file.path)
+                      ],
+                      onOpenDocumentPath
+                    )}
                   </p>
                 ))}
               </div>
@@ -468,4 +709,24 @@ function playTaskBell(): void {
   oscillator.start()
   oscillator.stop(context.currentTime + 0.3)
   window.setTimeout(() => void context.close(), 400)
+}
+
+function renderOutputText(
+  text: string,
+  knownPaths: string[],
+  onOpen: (path: string) => void
+): Array<string | JSX.Element> {
+  const paths = [...new Set(knownPaths)].filter(Boolean).sort((a, b) => b.length - a.length)
+  if (!paths.length) return [text]
+  const escaped = paths.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'g')
+  return text.split(pattern).map((part, index) =>
+    paths.includes(part) ? (
+      <button className="task-output-link" key={`${part}-${index}`} onClick={() => onOpen(part)}>
+        {part}
+      </button>
+    ) : (
+      part
+    )
+  )
 }

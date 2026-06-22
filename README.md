@@ -21,8 +21,12 @@ display, and appearance. Settings are stored as versioned JSON under Electron's
 macOS user-data directory.
 
 The file tree supports a native right-click action for copying a project-relative
-path. The preview area displays PNG/JPEG directly and converts HEIC/HEIF through
-the macOS `sips` utility into a cached PNG preview.
+path or adding a file/directory to the AI context basket. The Tasks view discovers
+Claude bundled, user, project, and installed-plugin Skills, shows a 24K-token
+context budget, and records the selected Skill/context with each task. Large
+non-Git projects use a context-scoped temporary workspace instead of failing at
+the full-project copy limit. The preview area displays PNG/JPEG directly and
+converts HEIC/HEIF through the macOS `sips` utility into a cached PNG preview.
 
 > **Unsigned build notice.** The local package produced here is **not
 > code-signed** and **not notarized**. macOS Gatekeeper may warn on first

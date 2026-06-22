@@ -4,6 +4,7 @@ import path from 'path'
 import os from 'os'
 import { promisify } from 'util'
 import { snapshotFromBuffer, type SnapshotMap } from './workspaceDiff.js'
+import { resolveWithinRoot } from './security.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -170,7 +171,10 @@ export function toPosix(p: string): string {
  * directories are copied to a temp location, excluding dot/cache/build dirs,
  * after a size guard. The returned baseline snapshot reflects the workspace.
  */
-export async function prepareWorkspace(sourceRoot: string): Promise<PreparedWorkspace> {
+export async function prepareWorkspace(
+  sourceRoot: string,
+  contextPaths: string[] = []
+): Promise<PreparedWorkspace> {
   const realSource = await fs.realpath(sourceRoot)
   const gitInfo = await gitWorkspaceInfo(realSource)
   if (gitInfo && gitInfo.relativeProjectPath === '') {
@@ -178,8 +182,11 @@ export async function prepareWorkspace(sourceRoot: string): Promise<PreparedWork
   }
   const size = await directorySize(realSource)
   if (size > MAX_NONGIT_COPY_BYTES) {
+    if (contextPaths.length > 0) {
+      return prepareScopedTempCopy(realSource, contextPaths)
+    }
     throw new Error(
-      `工作目录超过 ${Math.round(MAX_NONGIT_COPY_BYTES / (1024 * 1024))}MB，且不是 Git 仓库，无法隔离运行`
+      `工作目录超过 ${Math.round(MAX_NONGIT_COPY_BYTES / (1024 * 1024))}MB。请先把文件或目录添加到 AI 上下文，再运行范围任务`
     )
   }
   return prepareTempCopy(realSource)
@@ -270,16 +277,70 @@ async function removeDestinationOnlyEntries(source: string, dest: string): Promi
 
 async function prepareTempCopy(sourceRoot: string): Promise<PreparedWorkspace> {
   const dir = await makeTempDir('copy-')
-  await copyTree(sourceRoot, dir, true)
-  const baseline = await snapshotTree(dir)
-  return {
-    path: dir,
-    isGitWorktree: false,
-    sourceRoot,
-    baseline,
-    cleanup: async () => {
-      await fs.rm(dir, { recursive: true, force: true })
+  try {
+    await copyTree(sourceRoot, dir, true)
+    await copyClaudeConfiguration(sourceRoot, dir)
+    const baseline = await snapshotTree(dir)
+    return {
+      path: dir,
+      isGitWorktree: false,
+      sourceRoot,
+      baseline,
+      cleanup: async () => {
+        await fs.rm(dir, { recursive: true, force: true })
+      }
     }
+  } catch (error) {
+    await fs.rm(dir, { recursive: true, force: true })
+    throw error
+  }
+}
+
+async function prepareScopedTempCopy(
+  sourceRoot: string,
+  contextPaths: string[]
+): Promise<PreparedWorkspace> {
+  const dir = await makeTempDir('scope-')
+  try {
+    const copied = new Set<string>()
+    for (const requested of contextPaths) {
+      const safe = await resolveWithinRoot(sourceRoot, path.join(sourceRoot, requested))
+      const relative = path.relative(sourceRoot, safe)
+      if (!relative || relative.startsWith(`..${path.sep}`) || copied.has(relative)) continue
+      const stat = await fs.stat(safe)
+      const destination = path.join(dir, relative)
+      if (stat.isDirectory()) await copyTree(safe, destination)
+      else if (stat.isFile()) {
+        await fs.mkdir(path.dirname(destination), { recursive: true })
+        await fs.copyFile(safe, destination)
+      }
+      copied.add(relative)
+    }
+    await copyClaudeConfiguration(sourceRoot, dir)
+    const baseline = await snapshotTree(dir)
+    return {
+      path: dir,
+      isGitWorktree: false,
+      sourceRoot,
+      baseline,
+      cleanup: async () => {
+        await fs.rm(dir, { recursive: true, force: true })
+      }
+    }
+  } catch (error) {
+    await fs.rm(dir, { recursive: true, force: true })
+    throw error
+  }
+}
+
+async function copyClaudeConfiguration(sourceRoot: string, destinationRoot: string): Promise<void> {
+  try {
+    const source = await resolveWithinRoot(sourceRoot, path.join(sourceRoot, '.claude'))
+    const stat = await fs.stat(source)
+    if (!stat.isDirectory()) return
+    await copyTree(source, path.join(destinationRoot, '.claude'))
+  } catch {
+    // Project-level Claude configuration is optional.
   }
 }
 

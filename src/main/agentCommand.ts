@@ -14,6 +14,8 @@ export interface CommandOptions {
   model?: string
   /** Codex otherwise refuses to run in a copied non-Git workspace. */
   skipGitRepoCheck?: boolean
+  /** Maximum Claude API spend for this task; omitted/zero means provider default. */
+  maxBudgetUsd?: number
 }
 
 /**
@@ -34,6 +36,9 @@ export function buildAgentCommand(options: CommandOptions): AgentCommand {
       '--no-session-persistence'
     ]
     if (model) args.push('--model', model)
+    if (options.maxBudgetUsd && options.maxBudgetUsd > 0) {
+      args.push('--max-budget-usd', String(options.maxBudgetUsd))
+    }
     if (bypassPermissions) args.push('--dangerously-skip-permissions')
     args.push('--', prompt)
     return { file: 'claude', args }

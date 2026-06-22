@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types.js'
 import type {
   AgentAvailability,
+  AgentContextEstimate,
+  AgentSkill,
   AgentTask,
   AgentTaskEvent,
   AgentTaskRequest,
@@ -42,7 +44,11 @@ const api: StudioApi = {
   quickLook: (filePath: string) =>
     ipcRenderer.invoke(IPC.fs.quickLook, filePath) as Promise<IpcResult<QuickLookPreview>>,
   showPathContextMenu: (targetPath: string) =>
-    ipcRenderer.invoke(IPC.fs.showPathContextMenu, targetPath) as Promise<IpcResult<void>>,
+    ipcRenderer.invoke(IPC.fs.showPathContextMenu, targetPath) as Promise<
+      IpcResult<'copy-relative-path' | 'add-ai-context' | null>
+    >,
+  estimateContext: (paths: string[]) =>
+    ipcRenderer.invoke(IPC.fs.estimateContext, paths) as Promise<IpcResult<AgentContextEstimate>>,
   pty: {
     create: (options: PtyCreateOptions) =>
       ipcRenderer.invoke(IPC.pty.create, options) as Promise<IpcResult<void>>,
@@ -71,6 +77,12 @@ const api: StudioApi = {
       ipcRenderer.on(IPC.settings.onOpen, handler)
       return () => ipcRenderer.removeListener(IPC.settings.onOpen, handler)
     }
+  },
+  skills: {
+    list: () => ipcRenderer.invoke(IPC.skills.list) as Promise<IpcResult<AgentSkill[]>>,
+    refresh: () => ipcRenderer.invoke(IPC.skills.refresh) as Promise<IpcResult<AgentSkill[]>>,
+    details: (skillId: string) =>
+      ipcRenderer.invoke(IPC.skills.details, skillId) as Promise<IpcResult<AgentSkill | null>>
   },
   agent: {
     availability: () =>

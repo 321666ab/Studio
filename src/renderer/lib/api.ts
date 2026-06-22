@@ -1,5 +1,7 @@
 import type {
   AgentAvailability,
+  AgentContextEstimate,
+  AgentSkill,
   AgentTask,
   AgentTaskEvent,
   AgentTaskRequest,
@@ -50,8 +52,13 @@ export const api = {
   async quickLook(filePath: string): Promise<QuickLookPreview> {
     return unwrap(await window.studio.quickLook(filePath))
   },
-  async showPathContextMenu(targetPath: string): Promise<void> {
+  async showPathContextMenu(
+    targetPath: string
+  ): Promise<'copy-relative-path' | 'add-ai-context' | null> {
     return unwrap(await window.studio.showPathContextMenu(targetPath))
+  },
+  async estimateContext(paths: string[]): Promise<AgentContextEstimate> {
+    return unwrap(await window.studio.estimateContext(paths))
   },
   // --- Settings ----------------------------------------------------------
   async getSettings(): Promise<Settings> {
@@ -62,6 +69,16 @@ export const api = {
   },
   onOpenSettings(listener: () => void): () => void {
     return window.studio.settings.onOpen(listener)
+  },
+  // --- Skills -------------------------------------------------------------
+  async listSkills(): Promise<AgentSkill[]> {
+    return unwrap(await window.studio.skills.list())
+  },
+  async refreshSkills(): Promise<AgentSkill[]> {
+    return unwrap(await window.studio.skills.refresh())
+  },
+  async getSkillDetails(skillId: string): Promise<AgentSkill | null> {
+    return unwrap(await window.studio.skills.details(skillId))
   },
   // --- Agents ------------------------------------------------------------
   async agentAvailability(): Promise<AgentAvailability[]> {

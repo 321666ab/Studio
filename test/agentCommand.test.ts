@@ -31,6 +31,18 @@ describe('buildAgentCommand', () => {
     expect(cmd.args[cmd.args.length - 1]).toBe('hi')
   })
 
+  it('passes the Claude task budget without changing prompt positioning', () => {
+    const cmd = buildAgentCommand({
+      provider: 'claude',
+      prompt: '/review inspect docs/a.md',
+      bypassPermissions: false,
+      maxBudgetUsd: 3.5
+    })
+    expect(cmd.args).toContain('--max-budget-usd')
+    expect(cmd.args).toContain('3.5')
+    expect(cmd.args.slice(-2)).toEqual(['--', '/review inspect docs/a.md'])
+  })
+
   it('builds a Codex exec --json command with bypass', () => {
     const cmd = buildAgentCommand({
       provider: 'codex',

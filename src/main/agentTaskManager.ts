@@ -4,6 +4,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import type {
   AgentProvider,
+  AgentSkill,
   AgentTask,
   AgentTaskEvent,
   AgentTaskRequest,
@@ -27,6 +28,7 @@ import {
   type ConflictReason
 } from './workspaceDiff.js'
 import { resolveWithinRoot } from './security.js'
+import { DEFAULT_CONTEXT_TOKEN_BUDGET, estimateContext } from './contextService.js'
 
 /** Emitter signature for task lifecycle/output events. */
 export type AgentEventSink = (event: AgentTaskEvent) => void
@@ -52,6 +54,10 @@ export interface AgentTaskManagerOptions {
   getTimeoutMs: () => number
   /** Provider-specific model; empty means inherit CLI configuration. */
   getModel: (provider: AgentProvider) => string
+  /** Maximum Claude provider spend per task; zero disables the limit. */
+  getMaxBudgetUsd: () => number
+  /** Resolve an available Claude skill by its Studio identifier. */
+  getSkill: (skillId: string) => Promise<AgentSkill | null>
   /** Resolve the provider CLI to an absolute path in the user's login shell. */
   getExecutable: (provider: AgentProvider) => Promise<string>
   /** PATH captured from the user's login shell (Finder apps inherit a minimal PATH). */
@@ -81,16 +87,18 @@ export class AgentTaskManager {
   /** Begin a task: validate, prepare workspace, spawn the CLI. */
   async start(request: AgentTaskRequest): Promise<AgentTask> {
     const provider = validProvider(request?.provider)
-    const prompt = validPrompt(request?.prompt)
+    const userPrompt = validPrompt(request?.prompt, !!request?.skill)
     const taskId = request?.taskId ? validTaskId(request.taskId) : randomUUID()
     if (this.tasks.has(taskId)) throw new Error('任务标识已存在')
 
     const task: AgentTask = {
       taskId,
       provider,
-      prompt,
+      prompt: userPrompt,
       status: 'pending',
       createdAt: Date.now(),
+      skill: request.skill,
+      context: request.context,
       changedFiles: []
     }
     const entry: RunningTask = { task, cancelled: false, timedOut: false }
@@ -99,8 +107,32 @@ export class AgentTaskManager {
     this.setStatus(entry, 'preparing')
     let executable: string
     try {
+      const root = this.options.getRoot()
+      const skill = request.skill ? await this.validateSkill(request.skill.id, request.skill.command, provider) : null
+      const contextEstimate = request.context?.paths?.length
+        ? await estimateContext(root, request.context.paths)
+        : { items: [], totalBytes: 0, estimatedTokens: 0, fileCount: 0 }
+      if (contextEstimate.estimatedTokens > DEFAULT_CONTEXT_TOKEN_BUDGET) {
+        throw new Error(
+          `AI 上下文约 ${contextEstimate.estimatedTokens.toLocaleString()} tokens，超过 ${DEFAULT_CONTEXT_TOKEN_BUDGET.toLocaleString()} 上限`
+        )
+      }
+      const contextPaths = contextEstimate.items.map((item) => item.relativePath)
+      task.context = {
+        paths: contextPaths,
+        estimatedTokens: contextEstimate.estimatedTokens
+      }
+      if (skill) {
+        task.skill = {
+          id: skill.id,
+          command: skill.command,
+          source: skill.source,
+          name: skill.name
+        }
+      }
+      task.prompt = buildTaskPrompt(userPrompt, task.skill, contextPaths)
       executable = await this.options.getExecutable(provider)
-      entry.workspace = await prepareWorkspace(this.options.getRoot())
+      entry.workspace = await prepareWorkspace(root, contextPaths)
       task.workspacePath = entry.workspace.path
       if (entry.cancelled) {
         await entry.workspace.cleanup().catch(() => undefined)
@@ -113,7 +145,7 @@ export class AgentTaskManager {
       return task
     }
 
-    this.spawn(entry, provider, prompt, executable)
+    this.spawn(entry, provider, task.prompt, executable)
     return task
   }
 
@@ -164,6 +196,17 @@ export class AgentTaskManager {
         conflicts.push({ path: change.path, reason: 'error', message: errorMessage(err) })
       }
     }
+    if (applied.length > 0) {
+      const appliedSet = new Set(applied)
+      entry.task.changedFiles = entry.task.changedFiles.filter(
+        (change) => !appliedSet.has(change.path)
+      )
+      this.options.emit({
+        taskId: entry.task.taskId,
+        kind: 'changes',
+        changedFiles: entry.task.changedFiles
+      })
+    }
     return { applied, conflicts }
   }
 
@@ -204,6 +247,7 @@ export class AgentTaskManager {
       prompt,
       bypassPermissions: this.options.getBypass(),
       model: this.options.getModel(provider) || undefined,
+      maxBudgetUsd: provider === 'claude' ? this.options.getMaxBudgetUsd() : undefined,
       skipGitRepoCheck: provider === 'codex' && !workspace.isGitWorktree
     })
     let child: ChildProcess
@@ -298,6 +342,19 @@ export class AgentTaskManager {
   private setStatus(entry: RunningTask, status: AgentTaskStatus): void {
     entry.task.status = status
     this.options.emit({ taskId: entry.task.taskId, kind: 'status', status })
+  }
+
+  private async validateSkill(
+    skillId: string,
+    command: string,
+    provider: AgentProvider
+  ): Promise<AgentSkill> {
+    if (provider !== 'claude') throw new Error('Claude Skill 只能由 Claude 执行')
+    const skill = await this.options.getSkill(skillId)
+    if (!skill || !skill.available || skill.command !== command) {
+      throw new Error('所选 Skill 不存在或当前不可用，请刷新能力列表')
+    }
+    return skill
   }
 }
 
@@ -400,10 +457,11 @@ function validProvider(value: unknown): AgentProvider {
   return value
 }
 
-function validPrompt(value: unknown): string {
-  if (typeof value !== 'string' || value.trim().length === 0) throw new Error('任务指令不能为空')
+function validPrompt(value: unknown, allowEmpty = false): string {
+  if (typeof value !== 'string') throw new Error('任务指令无效')
+  if (!allowEmpty && value.trim().length === 0) throw new Error('任务指令不能为空')
   if (value.length > 100_000) throw new Error('任务指令过长')
-  return value
+  return value.trim()
 }
 
 function validTaskId(value: unknown): string {
@@ -411,4 +469,23 @@ function validTaskId(value: unknown): string {
     throw new Error('任务标识无效')
   }
   return value
+}
+
+export function buildTaskPrompt(
+  prompt: string,
+  skill?: AgentTask['skill'],
+  contextPaths: string[] = []
+): string {
+  const parts: string[] = []
+  if (skill) parts.push(`${skill.command}${prompt ? ` ${prompt}` : ''}`)
+  else if (prompt) parts.push(prompt)
+  if (contextPaths.length > 0) {
+    parts.push(
+      `仅使用以下项目上下文完成任务：\n${contextPaths.map((item) => `- ${item}`).join('\n')}`
+    )
+  } else {
+    parts.push('请在当前项目中完成任务，并尽量减少不必要的文件修改。')
+  }
+  parts.push('输出中引用结论来源时，请使用项目相对路径。')
+  return parts.join('\n\n')
 }

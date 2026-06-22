@@ -7,7 +7,7 @@ import {
   snapshotFromBuffer,
   type SnapshotMap
 } from '../src/main/workspaceDiff.js'
-import { selectChanges } from '../src/main/agentTaskManager.js'
+import { buildTaskPrompt, selectChanges } from '../src/main/agentTaskManager.js'
 
 function snap(text: string): ReturnType<typeof snapshotFromBuffer> {
   return snapshotFromBuffer(Buffer.from(text, 'utf-8'))
@@ -123,5 +123,23 @@ describe('selectChanges', () => {
   it('filters to the requested subset', () => {
     const result = selectChanges(changes, ['a.txt', 'c.txt'])
     expect(result.map((c) => c.path)).toEqual(['a.txt', 'c.txt'])
+  })
+})
+
+describe('buildTaskPrompt', () => {
+  it('invokes a Claude skill exactly once and lists scoped context', () => {
+    const prompt = buildTaskPrompt(
+      '检查日期',
+      {
+        id: 'project:review',
+        command: '/review',
+        source: 'project',
+        name: 'Review'
+      },
+      ['docs/a.md', 'docs/b.md']
+    )
+    expect(prompt.match(/\/review/g)).toHaveLength(1)
+    expect(prompt).toContain('- docs/a.md')
+    expect(prompt).toContain('- docs/b.md')
   })
 })
