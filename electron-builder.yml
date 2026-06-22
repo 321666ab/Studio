@@ -1,0 +1,28 @@
+productName: Studio
+appId: com.local.studio
+# Local, unsigned build. No code signing and NO notarization is claimed.
+asar: true
+directories:
+  output: dist
+  buildResources: build
+# The renderer/main/preload bundles produced by electron-vite live in out/.
+files:
+  - out/**/*
+  - package.json
+# node-pty ships native bindings that must NOT be packed into the asar archive,
+# otherwise the .node files cannot be loaded at runtime.
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+mac:
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  target:
+    - target: dir
+      arch:
+        - arm64
+    - target: dmg
+      arch:
+        - arm64
+  # Unsigned local build: disable signing so electron-builder does not try to
+  # find a Developer ID identity. This app is not signed and not notarized.
+  identity: null
