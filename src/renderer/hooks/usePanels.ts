@@ -53,6 +53,8 @@ export interface PanelsController {
   setRightWidth: (w: number) => void
   resetLeft: () => void
   resetRight: () => void
+  replaceWidths: (leftWidth: number, rightWidth: number) => void
+  resetAll: () => void
 }
 
 export function usePanels(): PanelsController {
@@ -92,6 +94,25 @@ export function usePanels(): PanelsController {
     () => setState((s) => ({ ...s, rightWidth: RIGHT_DEFAULT })),
     []
   )
+  const replaceWidths = useCallback(
+    (leftWidth: number, rightWidth: number) =>
+      setState((s) => ({
+        ...s,
+        leftWidth: clamp(leftWidth, LEFT_MIN, LEFT_MAX),
+        rightWidth: clamp(rightWidth, RIGHT_MIN, RIGHT_MAX)
+      })),
+    []
+  )
+  const resetAll = useCallback(
+    () =>
+      setState({
+        leftWidth: LEFT_DEFAULT,
+        rightWidth: RIGHT_DEFAULT,
+        leftCollapsed: false,
+        rightCollapsed: false
+      }),
+    []
+  )
 
   return {
     ...state,
@@ -100,6 +121,8 @@ export function usePanels(): PanelsController {
     setLeftWidth,
     setRightWidth,
     resetLeft,
-    resetRight
+    resetRight,
+    replaceWidths,
+    resetAll
   }
 }

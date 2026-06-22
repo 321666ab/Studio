@@ -2,11 +2,25 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { IPC } from '../shared/types.js'
-import type { IpcResult, ProjectInfo } from '../shared/types.js'
+import type {
+  AgentAvailability,
+  AgentTask,
+  AgentTaskEvent,
+  AgentTaskRequest,
+  ApplyChangesRequest,
+  ApplyChangesResult,
+  IpcResult,
+  ProjectInfo,
+  Settings,
+  SettingsPatch
+} from '../shared/types.js'
 import { projectState } from './project.js'
 import { getFileInfo, readDir, readFileText, writeMarkdown } from './fileService.js'
 import { PtyManager, registerPtyHandlers } from './pty.js'
 import { resolveWithinRoot } from './security.js'
+import { SettingsStore, defaultSettingsPath } from './settings.js'
+import { AgentAvailabilityCache } from './agentAvailability.js'
+import { AgentTaskManager } from './agentTaskManager.js'
 import {
   PREVIEW_SCHEME,
   registerPreviewProtocol,
@@ -22,6 +36,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let mainWindow: BrowserWindow | null = null
 let ptyManager: PtyManager | null = null
 let quickLookService: QuickLookService | null = null
+let settingsStore: SettingsStore | null = null
+let agentAvailability: AgentAvailabilityCache | null = null
+let agentTaskManager: AgentTaskManager | null = null
+// Cached settings-derived knobs read by the agent manager on each run.
+let lastBypass = true
+let lastTimeoutMs = 10 * 60 * 1000
+let lastModels = { claude: '', codex: '' }
 
 registerPreviewSchemePrivileges()
 registerQuickLookSchemePrivileges()
@@ -74,9 +95,11 @@ function registerHandlers(): void {
       })
       if (result.canceled || result.filePaths.length === 0) return ok(null)
       const info = await projectState.set(result.filePaths[0])
+      await requireSettings().update({ general: { lastProjectPath: info.root } })
       // Switching projects tears down any live shell.
       ptyManager?.disposeAll()
       await quickLookService?.clear()
+      await agentTaskManager?.disposeAll()
       return ok(info)
     } catch (err) {
       return fail(err)
@@ -138,17 +161,127 @@ function registerHandlers(): void {
     }
   })
 
+  // --- Settings ----------------------------------------------------------
+  ipcMain.handle(IPC.settings.get, async (): Promise<IpcResult<Settings>> => {
+    try {
+      return ok(await requireSettings().get())
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.settings.update,
+    async (_e, patch: SettingsPatch): Promise<IpcResult<Settings>> => {
+      try {
+        const next = await requireSettings().update(patch ?? {})
+        lastBypass = next.ai.bypassPermissions
+        lastTimeoutMs = next.ai.taskTimeoutMs
+        lastModels = { claude: next.ai.claudeModel, codex: next.ai.codexModel }
+        return ok(next)
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
+
+  // --- Agents ------------------------------------------------------------
+  ipcMain.handle(IPC.agent.availability, async (): Promise<IpcResult<AgentAvailability[]>> => {
+    try {
+      return ok(await requireAvailability().get(Date.now()))
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.agent.start,
+    async (_e, request: AgentTaskRequest): Promise<IpcResult<AgentTask>> => {
+      try {
+        return ok(await requireAgentManager().start(request))
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.agent.cancel, async (_e, taskId: string): Promise<IpcResult<void>> => {
+    try {
+      await requireAgentManager().cancel(taskId)
+      return ok(undefined)
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(IPC.agent.get, async (_e, taskId: string): Promise<IpcResult<AgentTask | null>> => {
+    try {
+      return ok(requireAgentManager().get(taskId))
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(IPC.agent.list, async (): Promise<IpcResult<AgentTask[]>> => {
+    try {
+      return ok(requireAgentManager().list())
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.agent.apply,
+    async (_e, request: ApplyChangesRequest): Promise<IpcResult<ApplyChangesResult>> => {
+      try {
+        return ok(await requireAgentManager().apply(request))
+      } catch (err) {
+        return fail(err)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.agent.discard, async (_e, taskId: string): Promise<IpcResult<void>> => {
+    try {
+      await requireAgentManager().discard(taskId)
+      return ok(undefined)
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
   ptyManager = new PtyManager(() => mainWindow?.webContents ?? null)
   registerPtyHandlers(ipcMain, ptyManager, () => projectState.requireRoot())
 }
 
-app.whenReady().then(() => {
+function requireSettings(): SettingsStore {
+  if (!settingsStore) throw new Error('设置尚未就绪')
+  return settingsStore
+}
+
+function requireAvailability(): AgentAvailabilityCache {
+  if (!agentAvailability) throw new Error('代理检测尚未就绪')
+  return agentAvailability
+}
+
+function requireAgentManager(): AgentTaskManager {
+  if (!agentTaskManager) throw new Error('任务管理器尚未就绪')
+  return agentTaskManager
+}
+
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
         label: 'Studio',
         submenu: [
           { role: 'about', label: '关于 Studio' },
+          { type: 'separator' },
+          {
+            label: '设置…',
+            accelerator: 'CmdOrCtrl+,',
+            click: () => mainWindow?.webContents.send(IPC.settings.onOpen)
+          },
           { type: 'separator' },
           { role: 'hide', label: '隐藏 Studio' },
           { role: 'hideOthers', label: '隐藏其他应用' },
@@ -195,6 +328,28 @@ app.whenReady().then(() => {
   registerPreviewProtocol(() => projectState.get()?.root ?? null)
   quickLookService = new QuickLookService(path.join(app.getPath('temp'), 'studio-quicklook'))
   quickLookService.registerProtocol()
+
+  settingsStore = new SettingsStore(defaultSettingsPath(app.getPath('userData')))
+  const initialSettings = await settingsStore.get()
+  if (initialSettings.general.restoreLastProject && initialSettings.general.lastProjectPath) {
+    await projectState.set(initialSettings.general.lastProjectPath).catch(() => undefined)
+  }
+  agentAvailability = new AgentAvailabilityCache()
+  agentTaskManager = new AgentTaskManager({
+    getRoot: () => projectState.requireRoot(),
+    getBypass: () => lastBypass,
+    getTimeoutMs: () => lastTimeoutMs,
+    getModel: (provider) => lastModels[provider],
+    emit: (event: AgentTaskEvent) => mainWindow?.webContents.send(IPC.agent.onEvent, event)
+  })
+  // Seed the manager's settings-derived knobs and keep them current on update.
+  lastBypass = initialSettings.ai.bypassPermissions
+  lastTimeoutMs = initialSettings.ai.taskTimeoutMs
+  lastModels = {
+    claude: initialSettings.ai.claudeModel,
+    codex: initialSettings.ai.codexModel
+  }
+
   registerHandlers()
   createWindow()
 
@@ -206,6 +361,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   ptyManager?.disposeAll()
   void quickLookService?.clear()
+  void agentTaskManager?.disposeAll()
   if (process.platform !== 'darwin') app.quit()
 })
 

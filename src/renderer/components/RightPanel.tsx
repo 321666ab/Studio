@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Bell,
-  BellOff,
   Bot,
   Code2,
   Columns2,
+  ListTodo,
   PanelRightClose,
   Plus,
+  Settings as SettingsIcon,
+  TerminalSquare,
   X
 } from 'lucide-react'
-import type { ProjectInfo, PtyAgent } from '../../shared/types'
+import type {
+  AgentAvailability,
+  ProjectInfo,
+  PtyAgent,
+  Settings
+} from '../../shared/types'
 import { TerminalView, type TerminalTaskStatus } from './TerminalView'
+import { TaskWorkspace } from './TaskWorkspace'
 
 interface TerminalPane {
   id: string
@@ -26,27 +33,44 @@ interface TerminalTab {
 
 interface RightPanelProps {
   project: ProjectInfo | null
+  selectedPath: string | null
+  settings: Settings
+  availability: AgentAvailability[]
   onCollapse: () => void
+  onOpenSettings: () => void
 }
 
 const STATUS_LABEL: Record<TerminalTaskStatus, string> = {
-  idle: '无任务',
-  running: '执行中',
-  completed: '执行结束'
+  starting: '启动中',
+  idle: '空闲',
+  active: '活跃',
+  exited: '已退出',
+  error: '错误'
 }
 
-export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Element {
+export function RightPanel({
+  project,
+  selectedPath,
+  settings,
+  availability,
+  onCollapse,
+  onOpenSettings
+}: RightPanelProps): JSX.Element {
+  const [mode, setMode] = useState<'tasks' | 'terminal'>('tasks')
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
-  const [muted, setMuted] = useState(() => localStorage.getItem('studio.terminalMuted') === '1')
   const terminalNumber = useRef(0)
 
   useEffect(() => {
-    localStorage.setItem('studio.terminalMuted', muted ? '1' : '0')
-  }, [muted])
+    setTabs([])
+    setActiveId(null)
+    setPickerOpen(false)
+    setRenamingId(null)
+    terminalNumber.current = 0
+  }, [project?.root])
 
   const openTerminal = (agent: PtyAgent): string => {
     terminalNumber.current += 1
@@ -56,7 +80,7 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
       id,
       agent,
       label: `${agent === 'claude' ? 'Claude' : 'Codex'} ${number}`,
-      panes: [{ id: `${id}-pane-1`, status: 'idle' }]
+      panes: [{ id: `${id}-pane-1`, status: 'starting' }]
     }
     setTabs((current) => [...current, tab])
     setActiveId(id)
@@ -99,7 +123,7 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
         if (tab.panes.length > 1) return { ...tab, panes: [tab.panes[0]] }
         return {
           ...tab,
-          panes: [...tab.panes, { id: `${tab.id}-pane-2`, status: 'idle' }]
+          panes: [...tab.panes, { id: `${tab.id}-pane-2`, status: 'starting' }]
         }
       })
     )
@@ -126,7 +150,27 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
   return (
     <>
       <div className="right-panel-head">
-        <div className="right-tabs">
+        <div className="right-mode-switch" role="tablist" aria-label="右侧栏模式">
+          <button
+            role="tab"
+            aria-selected={mode === 'tasks'}
+            className={mode === 'tasks' ? 'active' : ''}
+            onClick={() => setMode('tasks')}
+          >
+            <ListTodo size={13} />
+            任务
+          </button>
+          <button
+            role="tab"
+            aria-selected={mode === 'terminal'}
+            className={mode === 'terminal' ? 'active' : ''}
+            onClick={() => setMode('terminal')}
+          >
+            <TerminalSquare size={13} />
+            终端
+          </button>
+        </div>
+        <div className="right-tabs" style={{ display: mode === 'terminal' ? 'flex' : 'none' }}>
           {tabs.map((tab) => {
             const status = aggregateStatus(tab.panes)
             const AgentIcon = tab.agent === 'claude' ? Bot : Code2
@@ -169,10 +213,19 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
                 <span
                   className="right-tab-close"
                   role="button"
+                  tabIndex={0}
+                  aria-label={`关闭 ${tab.label}`}
                   title="关闭标签"
                   onClick={(event) => {
                     event.stopPropagation()
                     closeTab(tab.id)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      closeTab(tab.id)
+                    }
                   }}
                 >
                   <X size={12} strokeWidth={2} />
@@ -184,16 +237,18 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
 
         <div className="right-panel-actions">
           <button
-            className={`icon-btn${muted ? '' : ' active'}`}
-            title={muted ? '开启任务完成响铃' : '静音任务完成响铃'}
-            onClick={() => setMuted((value) => !value)}
+            className="icon-btn"
+            title="AI 与终端设置"
+            aria-label="打开 AI 与终端设置"
+            onClick={onOpenSettings}
           >
-            {muted ? <BellOff size={14} strokeWidth={1.8} /> : <Bell size={14} strokeWidth={1.8} />}
+            <SettingsIcon size={14} strokeWidth={1.8} />
           </button>
           <button
             className={`icon-btn${activeTab?.panes.length === 2 ? ' active' : ''}`}
             title={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
-            disabled={!activeTab}
+            aria-label={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
+            disabled={mode !== 'terminal' || !activeTab}
             onClick={toggleSplit}
           >
             <Columns2 size={15} strokeWidth={1.8} />
@@ -201,19 +256,33 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
           <button
             className={`icon-btn${pickerOpen ? ' active' : ''}`}
             title="新建 Agent 终端"
+            aria-label="新建 Agent 终端"
+            disabled={mode !== 'terminal'}
             onClick={() => setPickerOpen((open) => !open)}
           >
             <Plus size={15} strokeWidth={2} />
           </button>
-          <button className="icon-btn" title="收起右侧栏 (⌘⌥B)" onClick={onCollapse}>
+          <button
+            className="icon-btn"
+            title="收起右侧栏 (⌘⌥B)"
+            aria-label="收起右侧栏"
+            onClick={onCollapse}
+          >
             <PanelRightClose size={15} strokeWidth={1.8} />
           </button>
         </div>
       </div>
 
-      {pickerOpen && <AgentPicker onChoose={openTerminal} />}
+      {pickerOpen && mode === 'terminal' && <AgentPicker onChoose={openTerminal} />}
 
-      <div className="tab-body">
+      {mode === 'tasks' ? (
+        <TaskWorkspace
+          projectRoot={project?.root ?? null}
+          selectedPath={selectedPath}
+          settings={settings}
+          availability={availability}
+        />
+      ) : <div className="tab-body">
         {!activeId && <PanelChooser onChoose={openTerminal} />}
         {tabs.map((tab) => (
           <div
@@ -238,10 +307,9 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
                     agent={tab.agent}
                     projectKey={project.root}
                     active={activeId === tab.id}
+                    fontSize={settings.terminal.fontSize}
+                    scrollback={settings.terminal.scrollback}
                     onStatusChange={(status) => updatePaneStatus(tab.id, pane.id, status)}
-                    onTaskComplete={() => {
-                      if (!muted) playCompletionBell()
-                    }}
                   />
                 </div>
               ))
@@ -252,7 +320,7 @@ export function RightPanel({ project, onCollapse }: RightPanelProps): JSX.Elemen
             )}
           </div>
         ))}
-      </div>
+      </div>}
     </>
   )
 }
@@ -305,31 +373,9 @@ function AgentChoice({
 }
 
 function aggregateStatus(panes: TerminalPane[]): TerminalTaskStatus {
-  if (panes.some((pane) => pane.status === 'running')) return 'running'
-  if (panes.some((pane) => pane.status === 'completed')) return 'completed'
+  if (panes.some((pane) => pane.status === 'active')) return 'active'
+  if (panes.some((pane) => pane.status === 'starting')) return 'starting'
+  if (panes.some((pane) => pane.status === 'error')) return 'error'
+  if (panes.some((pane) => pane.status === 'exited')) return 'exited'
   return 'idle'
-}
-
-function playCompletionBell(): void {
-  const AudioContextClass = window.AudioContext
-  const context = new AudioContextClass()
-  const gain = context.createGain()
-  gain.gain.setValueAtTime(0.0001, context.currentTime)
-  gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.015)
-  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.32)
-  gain.connect(context.destination)
-
-  for (const [frequency, delay] of [
-    [660, 0],
-    [880, 0.11]
-  ] as const) {
-    const oscillator = context.createOscillator()
-    oscillator.type = 'sine'
-    oscillator.frequency.value = frequency
-    oscillator.connect(gain)
-    oscillator.start(context.currentTime + delay)
-    oscillator.stop(context.currentTime + delay + 0.2)
-  }
-
-  window.setTimeout(() => void context.close(), 500)
 }

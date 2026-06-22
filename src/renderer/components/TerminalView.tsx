@@ -4,15 +4,16 @@ import { FitAddon } from '@xterm/addon-fit'
 import type { PtyAgent } from '../../shared/types'
 import '@xterm/xterm/css/xterm.css'
 
-export type TerminalTaskStatus = 'idle' | 'running' | 'completed'
+export type TerminalTaskStatus = 'starting' | 'idle' | 'active' | 'exited' | 'error'
 
 interface TerminalViewProps {
   terminalId: string
   agent: PtyAgent
   projectKey: string | null
   active: boolean
+  fontSize: number
+  scrollback: number
   onStatusChange: (status: TerminalTaskStatus) => void
-  onTaskComplete: () => void
 }
 
 export function TerminalView({
@@ -20,21 +21,20 @@ export function TerminalView({
   agent,
   projectKey,
   active,
-  onStatusChange,
-  onTaskComplete
+  fontSize,
+  scrollback,
+  onStatusChange
 }: TerminalViewProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
-  const statusRef = useRef<TerminalTaskStatus>('idle')
-  const completionTimerRef = useRef<number | null>(null)
+  const statusRef = useRef<TerminalTaskStatus>('starting')
+  const idleTimerRef = useRef<number | null>(null)
   const statusChangeRef = useRef(onStatusChange)
-  const taskCompleteRef = useRef(onTaskComplete)
 
   useEffect(() => {
     statusChangeRef.current = onStatusChange
-    taskCompleteRef.current = onTaskComplete
-  }, [onStatusChange, onTaskComplete])
+  }, [onStatusChange])
 
   useEffect(() => {
     const host = hostRef.current
@@ -46,22 +46,18 @@ export function TerminalView({
       statusChangeRef.current(status)
     }
 
-    const markCompleted = (): void => {
-      if (statusRef.current !== 'running') return
-      setStatus('completed')
-      taskCompleteRef.current()
-    }
-
-    const scheduleCompletion = (): void => {
-      if (statusRef.current !== 'running') return
-      if (completionTimerRef.current !== null) window.clearTimeout(completionTimerRef.current)
-      completionTimerRef.current = window.setTimeout(markCompleted, 2200)
+    const scheduleIdle = (): void => {
+      if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = window.setTimeout(() => {
+        if (statusRef.current === 'active') setStatus('idle')
+      }, 2200)
     }
 
     const term = new Terminal({
       fontFamily: "'SF Mono', ui-monospace, Menlo, monospace",
-      fontSize: 12,
+      fontSize,
       lineHeight: 1.25,
+      scrollback,
       cursorBlink: true,
       theme: {
         background: '#fbfbfc',
@@ -96,24 +92,24 @@ export function TerminalView({
     const offData = window.studio.pty.onData((event) => {
       if (event.terminalId !== terminalId) return
       term.write(event.data)
-      scheduleCompletion()
+      setStatus('active')
+      scheduleIdle()
     })
     const offExit = window.studio.pty.onExit((event) => {
       if (event.terminalId !== terminalId) return
       term.writeln(`\r\n\x1b[90m[进程已退出，代码 ${event.exitCode}]\x1b[0m`)
-      if (statusRef.current === 'running') taskCompleteRef.current()
-      setStatus('completed')
+      setStatus(event.exitCode === 0 ? 'exited' : 'error')
     })
     const inputSub = term.onData((data) => {
       window.studio.pty.input(terminalId, data)
       if (data.includes('\r') || data.includes('\n')) {
-        setStatus('running')
-        scheduleCompletion()
+        setStatus('active')
+        scheduleIdle()
       }
     })
 
     return () => {
-      if (completionTimerRef.current !== null) window.clearTimeout(completionTimerRef.current)
+      if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
       offData()
       offExit()
       inputSub.dispose()
@@ -127,10 +123,25 @@ export function TerminalView({
   useEffect(() => {
     const term = termRef.current
     const fit = fitRef.current
+    if (!term) return
+    term.options.fontSize = fontSize
+    term.options.scrollback = scrollback
+    requestAnimationFrame(() => {
+      try {
+        fit?.fit()
+      } catch {
+        // The pane may be hidden while settings change.
+      }
+    })
+  }, [fontSize, scrollback])
+
+  useEffect(() => {
+    const term = termRef.current
+    const fit = fitRef.current
     if (!term || !fit || !projectKey) return
 
-    statusRef.current = 'idle'
-    statusChangeRef.current('idle')
+    statusRef.current = 'starting'
+    statusChangeRef.current('starting')
     term.reset()
     requestAnimationFrame(() => {
       try {
@@ -143,8 +154,11 @@ export function TerminalView({
         .then((result) => {
           if (!result.ok) {
             term.writeln(`\x1b[31m终端启动失败：${result.error}\x1b[0m`)
-            statusRef.current = 'completed'
-            statusChangeRef.current('completed')
+            statusRef.current = 'error'
+            statusChangeRef.current('error')
+          } else {
+            statusRef.current = 'idle'
+            statusChangeRef.current('idle')
           }
         })
     })
@@ -171,5 +185,5 @@ export function TerminalView({
     return () => observer.disconnect()
   }, [active, terminalId])
 
-  return <div className="term-host" ref={hostRef} />
+  return <div className="term-host" ref={hostRef} role="region" aria-label="Agent 终端" />
 }

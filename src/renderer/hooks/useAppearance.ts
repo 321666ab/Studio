@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-
-export interface AppearanceSettings {
-  panelOpacity: number
-  blur: number
-  animationMs: number
-  radius: number
-  inset: number
-}
+import type { AppearanceSettings } from '../../shared/types'
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
+  colorScheme: 'system',
   panelOpacity: 0.64,
   blur: 32,
   animationMs: 180,
@@ -27,6 +21,7 @@ function load(): AppearanceSettings {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Partial<AppearanceSettings>
     return {
       panelOpacity: clamp(saved.panelOpacity ?? DEFAULT_APPEARANCE.panelOpacity, 0.35, 0.96),
+      colorScheme: saved.colorScheme ?? DEFAULT_APPEARANCE.colorScheme,
       blur: clamp(saved.blur ?? DEFAULT_APPEARANCE.blur, 0, 72),
       animationMs: clamp(saved.animationMs ?? DEFAULT_APPEARANCE.animationMs, 80, 360),
       radius: clamp(saved.radius ?? DEFAULT_APPEARANCE.radius, 6, 20),
@@ -40,6 +35,7 @@ function load(): AppearanceSettings {
 export function useAppearance(): {
   appearance: AppearanceSettings
   updateAppearance: (patch: Partial<AppearanceSettings>) => void
+  replaceAppearance: (next: AppearanceSettings) => void
   resetAppearance: () => void
 } {
   const [appearance, setAppearance] = useState<AppearanceSettings>(load)
@@ -53,6 +49,7 @@ export function useAppearance(): {
   }, [])
 
   const resetAppearance = useCallback(() => setAppearance(DEFAULT_APPEARANCE), [])
+  const replaceAppearance = useCallback((next: AppearanceSettings) => setAppearance(next), [])
 
-  return { appearance, updateAppearance, resetAppearance }
+  return { appearance, updateAppearance, replaceAppearance, resetAppearance }
 }

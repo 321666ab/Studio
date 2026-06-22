@@ -3,6 +3,23 @@
 A local Electron document workbench. These instructions cover running,
 verifying, and packaging the app on macOS (Apple Silicon / arm64).
 
+## AI workspace
+
+The right sidebar has two modes:
+
+- **Tasks** runs Claude Code or Codex non-interactively inside an isolated
+  temporary workspace. The current document can be attached as context, output
+  streams into the sidebar, and file changes can be reviewed and selectively
+  applied back to the project with hash-based conflict protection.
+- **Terminal** preserves direct Claude/Codex CLI sessions, tabs, and split
+  panes. These sessions continue to launch in bypass mode inside the real
+  project directory.
+
+Open **Studio → 设置…** or press `⌘,` to configure the default agent, optional
+model identifiers, bypass behavior, task timeout, notifications, terminal
+display, and appearance. Settings are stored as versioned JSON under Electron's
+macOS user-data directory.
+
 > **Unsigned build notice.** The local package produced here is **not
 > code-signed** and **not notarized**. macOS Gatekeeper may warn on first
 > launch. This is expected for local development builds.

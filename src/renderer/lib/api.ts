@@ -1,10 +1,18 @@
 import type {
+  AgentAvailability,
+  AgentTask,
+  AgentTaskEvent,
+  AgentTaskRequest,
+  ApplyChangesRequest,
+  ApplyChangesResult,
   DirEntry,
   FileInfo,
   IpcResult,
   ProjectInfo,
   QuickLookPreview,
   ReadFileResult,
+  Settings,
+  SettingsPatch,
   WriteFileResult
 } from '../../shared/types'
 
@@ -41,5 +49,40 @@ export const api = {
   },
   async quickLook(filePath: string): Promise<QuickLookPreview> {
     return unwrap(await window.studio.quickLook(filePath))
+  },
+  // --- Settings ----------------------------------------------------------
+  async getSettings(): Promise<Settings> {
+    return unwrap(await window.studio.settings.get())
+  },
+  async updateSettings(patch: SettingsPatch): Promise<Settings> {
+    return unwrap(await window.studio.settings.update(patch))
+  },
+  onOpenSettings(listener: () => void): () => void {
+    return window.studio.settings.onOpen(listener)
+  },
+  // --- Agents ------------------------------------------------------------
+  async agentAvailability(): Promise<AgentAvailability[]> {
+    return unwrap(await window.studio.agent.availability())
+  },
+  async startAgentTask(request: AgentTaskRequest): Promise<AgentTask> {
+    return unwrap(await window.studio.agent.start(request))
+  },
+  async cancelAgentTask(taskId: string): Promise<void> {
+    return unwrap(await window.studio.agent.cancel(taskId))
+  },
+  async getAgentTask(taskId: string): Promise<AgentTask | null> {
+    return unwrap(await window.studio.agent.get(taskId))
+  },
+  async listAgentTasks(): Promise<AgentTask[]> {
+    return unwrap(await window.studio.agent.list())
+  },
+  async applyAgentChanges(request: ApplyChangesRequest): Promise<ApplyChangesResult> {
+    return unwrap(await window.studio.agent.apply(request))
+  },
+  async discardAgentTask(taskId: string): Promise<void> {
+    return unwrap(await window.studio.agent.discard(taskId))
+  },
+  onAgentEvent(listener: (event: AgentTaskEvent) => void): () => void {
+    return window.studio.agent.onEvent(listener)
   }
 }

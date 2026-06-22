@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types.js'
 import type {
+  AgentAvailability,
+  AgentTask,
+  AgentTaskEvent,
+  AgentTaskRequest,
+  ApplyChangesRequest,
+  ApplyChangesResult,
   DirEntry,
   FileInfo,
   IpcResult,
@@ -9,6 +15,8 @@ import type {
   PtyDataEvent,
   PtyExitEvent,
   ReadFileResult,
+  Settings,
+  SettingsPatch,
   WriteFileResult,
   QuickLookPreview,
   StudioApi
@@ -50,6 +58,36 @@ const api: StudioApi = {
       const handler = (_e: unknown, payload: PtyExitEvent) => listener(payload)
       ipcRenderer.on(IPC.pty.onExit, handler)
       return () => ipcRenderer.removeListener(IPC.pty.onExit, handler)
+    }
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(IPC.settings.get) as Promise<IpcResult<Settings>>,
+    update: (patch: SettingsPatch) =>
+      ipcRenderer.invoke(IPC.settings.update, patch) as Promise<IpcResult<Settings>>,
+    onOpen: (listener: () => void) => {
+      const handler = () => listener()
+      ipcRenderer.on(IPC.settings.onOpen, handler)
+      return () => ipcRenderer.removeListener(IPC.settings.onOpen, handler)
+    }
+  },
+  agent: {
+    availability: () =>
+      ipcRenderer.invoke(IPC.agent.availability) as Promise<IpcResult<AgentAvailability[]>>,
+    start: (request: AgentTaskRequest) =>
+      ipcRenderer.invoke(IPC.agent.start, request) as Promise<IpcResult<AgentTask>>,
+    cancel: (taskId: string) =>
+      ipcRenderer.invoke(IPC.agent.cancel, taskId) as Promise<IpcResult<void>>,
+    get: (taskId: string) =>
+      ipcRenderer.invoke(IPC.agent.get, taskId) as Promise<IpcResult<AgentTask | null>>,
+    list: () => ipcRenderer.invoke(IPC.agent.list) as Promise<IpcResult<AgentTask[]>>,
+    apply: (request: ApplyChangesRequest) =>
+      ipcRenderer.invoke(IPC.agent.apply, request) as Promise<IpcResult<ApplyChangesResult>>,
+    discard: (taskId: string) =>
+      ipcRenderer.invoke(IPC.agent.discard, taskId) as Promise<IpcResult<void>>,
+    onEvent: (listener: (event: AgentTaskEvent) => void) => {
+      const handler = (_e: unknown, payload: AgentTaskEvent) => listener(payload)
+      ipcRenderer.on(IPC.agent.onEvent, handler)
+      return () => ipcRenderer.removeListener(IPC.agent.onEvent, handler)
     }
   }
 }
