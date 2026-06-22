@@ -224,7 +224,6 @@ export function App(): JSX.Element {
             settings={settings}
             availability={agentAvailability}
             onCollapse={panels.toggleRight}
-            onOpenSettings={() => setSettingsOpen(true)}
           />
         </div>
       </div>

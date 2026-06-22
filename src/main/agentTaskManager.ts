@@ -52,6 +52,10 @@ export interface AgentTaskManagerOptions {
   getTimeoutMs: () => number
   /** Provider-specific model; empty means inherit CLI configuration. */
   getModel: (provider: AgentProvider) => string
+  /** Resolve the provider CLI to an absolute path in the user's login shell. */
+  getExecutable: (provider: AgentProvider) => Promise<string>
+  /** PATH captured from the user's login shell (Finder apps inherit a minimal PATH). */
+  getLoginPath: () => string
   /** Receives every task event for forwarding to the renderer. */
   emit: AgentEventSink
 }
@@ -93,7 +97,9 @@ export class AgentTaskManager {
     this.tasks.set(taskId, entry)
 
     this.setStatus(entry, 'preparing')
+    let executable: string
     try {
+      executable = await this.options.getExecutable(provider)
       entry.workspace = await prepareWorkspace(this.options.getRoot())
       task.workspacePath = entry.workspace.path
       if (entry.cancelled) {
@@ -107,7 +113,7 @@ export class AgentTaskManager {
       return task
     }
 
-    this.spawn(entry, provider, prompt)
+    this.spawn(entry, provider, prompt, executable)
     return task
   }
 
@@ -186,7 +192,12 @@ export class AgentTaskManager {
 
   // --- internals ----------------------------------------------------------
 
-  private spawn(entry: RunningTask, provider: AgentProvider, prompt: string): void {
+  private spawn(
+    entry: RunningTask,
+    provider: AgentProvider,
+    prompt: string,
+    executable: string
+  ): void {
     const workspace = entry.workspace!
     const command = buildAgentCommand({
       provider,
@@ -197,9 +208,9 @@ export class AgentTaskManager {
     })
     let child: ChildProcess
     try {
-      child = spawn(command.file, command.args, {
+      child = spawn(executable, command.args, {
         cwd: workspace.path,
-        env: agentEnvironment(),
+        env: agentEnvironment(process.env, this.options.getLoginPath()),
         stdio: ['ignore', 'pipe', 'pipe']
       })
     } catch (err) {
@@ -297,15 +308,22 @@ export class AgentTaskManager {
  * but force NO_COLOR so ANSI escape codes never corrupt the JSON stream.
  */
 export function agentEnvironment(
-  source: NodeJS.ProcessEnv = process.env
+  source: NodeJS.ProcessEnv = process.env,
+  loginPath?: string
 ): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(source)) {
     if (typeof value === 'string') env[key] = value
   }
   env.NO_COLOR = '1'
+  if (loginPath) env.PATH = loginPath
   delete env.FORCE_COLOR
   delete env.CLICOLOR_FORCE
+  delete env.CLAUDECODE
+  delete env.CLAUDE_CODE_ENTRYPOINT
+  delete env.CLAUDE_CODE_SESSION
+  delete env.CODEX_THREAD_ID
+  delete env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE
   return env
 }
 

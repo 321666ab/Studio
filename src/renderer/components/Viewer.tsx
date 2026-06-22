@@ -68,6 +68,9 @@ export function Viewer({
       >
         {kind === 'pdf' && <PdfView path={file.path} />}
         {kind === 'image' && <ImageView path={file.path} name={file.name} />}
+        {kind === 'quicklook' && (
+          <QuickLookView file={file} onOpenExternal={onOpenExternal} />
+        )}
         {(kind === 'text' || kind === 'markdown') && (
           <TextOrMarkdownView
             file={file}

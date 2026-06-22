@@ -250,7 +250,8 @@ export const IPC = {
     readFile: 'fs:readFile',
     writeMarkdown: 'fs:writeMarkdown',
     openPath: 'fs:openPath',
-    quickLook: 'fs:quickLook'
+    quickLook: 'fs:quickLook',
+    showPathContextMenu: 'fs:showPathContextMenu'
   },
   pty: {
     create: 'pty:create',
@@ -287,6 +288,7 @@ export interface StudioApi {
   writeMarkdown: (filePath: string, content: string) => Promise<IpcResult<WriteFileResult>>
   openPath: (targetPath: string) => Promise<IpcResult<void>>
   quickLook: (filePath: string) => Promise<IpcResult<QuickLookPreview>>
+  showPathContextMenu: (targetPath: string) => Promise<IpcResult<void>>
   pty: {
     create: (options: PtyCreateOptions) => Promise<IpcResult<void>>
     input: (terminalId: string, data: string) => void

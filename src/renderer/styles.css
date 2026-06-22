@@ -325,6 +325,17 @@ button {
 .section-head .spacer {
   flex: 1;
 }
+.section-head .section-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 590;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
 
 /* ---- Icon buttons ---- */
 .icon-btn {

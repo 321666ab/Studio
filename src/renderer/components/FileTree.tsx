@@ -48,6 +48,10 @@ function TreeNode({ entry, depth, selectedPath, onSelectFile }: TreeNodeProps): 
         className={`tree-row${selected ? ' selected' : ''}`}
         style={{ paddingLeft: indent }}
         onClick={() => (entry.isDirectory ? toggle() : onSelectFile(entry))}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          void api.showPathContextMenu(entry.path)
+        }}
         title={entry.name}
       >
         {entry.isDirectory ? (

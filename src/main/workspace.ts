@@ -57,6 +57,47 @@ export interface PreparedWorkspace {
 
 /** Determine whether `root` is inside a git working tree. */
 export async function isGitRepo(root: string): Promise<boolean> {
+  return (await gitWorkspaceInfo(root)) !== null
+}
+
+interface GitWorkspaceInfo {
+  topLevel: string
+  relativeProjectPath: string
+}
+
+/**
+ * Return worktree metadata only when the repository has a valid HEAD commit.
+ * Repositories created with `git init` but no commit cannot create worktrees.
+ */
+async function gitWorkspaceInfo(root: string): Promise<GitWorkspaceInfo | null> {
+  try {
+    const [{ stdout: inside }, { stdout: topLevel }] = await Promise.all([
+      execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], {
+        cwd: root,
+        timeout: 5000
+      }),
+      execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: root,
+        timeout: 5000
+      }),
+      execFileAsync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: root,
+        timeout: 5000
+      })
+    ])
+    if (inside.trim() !== 'true') return null
+    const realTopLevel = await fs.realpath(topLevel.trim())
+    return {
+      topLevel: realTopLevel,
+      relativeProjectPath: path.relative(realTopLevel, root)
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Determine whether `root` is inside any git working tree, including unborn HEAD. */
+export async function isInsideGitWorkTree(root: string): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], {
       cwd: root,
@@ -131,9 +172,9 @@ export function toPosix(p: string): string {
  */
 export async function prepareWorkspace(sourceRoot: string): Promise<PreparedWorkspace> {
   const realSource = await fs.realpath(sourceRoot)
-  const gitBacked = await isGitRepo(realSource)
-  if (gitBacked) {
-    return prepareGitWorktree(realSource)
+  const gitInfo = await gitWorkspaceInfo(realSource)
+  if (gitInfo && gitInfo.relativeProjectPath === '') {
+    return prepareGitWorktree(realSource, gitInfo)
   }
   const size = await directorySize(realSource)
   if (size > MAX_NONGIT_COPY_BYTES) {
@@ -150,31 +191,38 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(base, prefix))
 }
 
-async function prepareGitWorktree(sourceRoot: string): Promise<PreparedWorkspace> {
-  const dir = await makeTempDir('wt-')
+async function prepareGitWorktree(
+  sourceRoot: string,
+  gitInfo: GitWorkspaceInfo
+): Promise<PreparedWorkspace> {
+  const worktreeRoot = await makeTempDir('wt-')
   // Detached worktree at the current HEAD; we then sync the dirty working tree
   // so uncommitted changes are part of the agent's starting point.
-  await execFileAsync('git', ['worktree', 'add', '--detach', dir, 'HEAD'], {
-    cwd: sourceRoot,
+  await execFileAsync('git', ['worktree', 'add', '--detach', worktreeRoot, 'HEAD'], {
+    cwd: gitInfo.topLevel,
     timeout: 60_000
   })
-  await syncWorkingTree(sourceRoot, dir)
+  const projectPath = gitInfo.relativeProjectPath
+    ? path.join(worktreeRoot, gitInfo.relativeProjectPath)
+    : worktreeRoot
+  await fs.mkdir(projectPath, { recursive: true })
+  await syncWorkingTree(sourceRoot, projectPath)
 
-  const baseline = await snapshotTree(dir)
+  const baseline = await snapshotTree(projectPath)
   return {
-    path: dir,
+    path: projectPath,
     isGitWorktree: true,
     sourceRoot,
     baseline,
     cleanup: async () => {
       try {
-        await execFileAsync('git', ['worktree', 'remove', '--force', dir], {
-          cwd: sourceRoot,
+        await execFileAsync('git', ['worktree', 'remove', '--force', worktreeRoot], {
+          cwd: gitInfo.topLevel,
           timeout: 30_000
         })
       } catch {
         // Fall back to a raw delete if git refuses (e.g. already detached).
-        await fs.rm(dir, { recursive: true, force: true })
+        await fs.rm(worktreeRoot, { recursive: true, force: true })
       }
     }
   }

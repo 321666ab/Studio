@@ -112,6 +112,11 @@ export function createPtyEnvironment(
   // Codex itself is launched with NO_COLOR=1. Do not leak that into the user's
   // shell: it disables ANSI styling in Claude and most modern CLI programs.
   delete env.NO_COLOR
+  delete env.CLAUDECODE
+  delete env.CLAUDE_CODE_ENTRYPOINT
+  delete env.CLAUDE_CODE_SESSION
+  delete env.CODEX_THREAD_ID
+  delete env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE
   env.LANG = 'en_US.UTF-8'
   env.LC_CTYPE = 'en_US.UTF-8'
   env.LC_ALL = 'en_US.UTF-8'
@@ -130,8 +135,8 @@ export function createPtyLaunch(
 ): { file: string; args: string[] } {
   const command =
     agent === 'claude'
-      ? 'exec claude --dangerously-skip-permissions'
-      : 'exec codex --dangerously-bypass-approvals-and-sandbox'
+      ? 'unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION CODEX_THREAD_ID CODEX_INTERNAL_ORIGINATOR_OVERRIDE; command -v claude >/dev/null || { echo "Claude CLI 未安装或不在登录 shell 的 PATH 中"; exit 127; }; exec claude --dangerously-skip-permissions'
+      : 'unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION CODEX_THREAD_ID CODEX_INTERNAL_ORIGINATOR_OVERRIDE; command -v codex >/dev/null || { echo "Codex CLI 未安装或不在登录 shell 的 PATH 中"; exit 127; }; exec codex --dangerously-bypass-approvals-and-sandbox'
   return { file: shell, args: ['-l', '-c', command] }
 }
 

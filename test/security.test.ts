@@ -150,7 +150,9 @@ describe('createPtyEnvironment', () => {
       HOME: '/tmp/home',
       LANG: 'C',
       LC_ALL: 'C',
-      NO_COLOR: '1'
+      NO_COLOR: '1',
+      CLAUDECODE: '1',
+      CODEX_THREAD_ID: 'thread'
     })
     expect(env).toMatchObject({
       HOME: '/tmp/home',
@@ -165,6 +167,8 @@ describe('createPtyEnvironment', () => {
       CLICOLOR_FORCE: '1'
     })
     expect(env).not.toHaveProperty('NO_COLOR')
+    expect(env).not.toHaveProperty('CLAUDECODE')
+    expect(env).not.toHaveProperty('CODEX_THREAD_ID')
   })
 })
 
@@ -172,14 +176,22 @@ describe('createPtyLaunch', () => {
   it('starts Claude directly in bypass mode through a login shell', () => {
     expect(createPtyLaunch('claude', '/bin/zsh')).toEqual({
       file: '/bin/zsh',
-      args: ['-l', '-c', 'exec claude --dangerously-skip-permissions']
+      args: [
+        '-l',
+        '-c',
+        'unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION CODEX_THREAD_ID CODEX_INTERNAL_ORIGINATOR_OVERRIDE; command -v claude >/dev/null || { echo "Claude CLI 未安装或不在登录 shell 的 PATH 中"; exit 127; }; exec claude --dangerously-skip-permissions'
+      ]
     })
   })
 
   it('starts Codex directly with approvals and sandbox bypassed', () => {
     expect(createPtyLaunch('codex', '/bin/zsh')).toEqual({
       file: '/bin/zsh',
-      args: ['-l', '-c', 'exec codex --dangerously-bypass-approvals-and-sandbox']
+      args: [
+        '-l',
+        '-c',
+        'unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION CODEX_THREAD_ID CODEX_INTERNAL_ORIGINATOR_OVERRIDE; command -v codex >/dev/null || { echo "Codex CLI 未安装或不在登录 shell 的 PATH 中"; exit 127; }; exec codex --dangerously-bypass-approvals-and-sandbox'
+      ]
     })
   })
 })

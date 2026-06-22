@@ -20,6 +20,10 @@ model identifiers, bypass behavior, task timeout, notifications, terminal
 display, and appearance. Settings are stored as versioned JSON under Electron's
 macOS user-data directory.
 
+The file tree supports a native right-click action for copying a project-relative
+path. The preview area displays PNG/JPEG directly and converts HEIC/HEIF through
+the macOS `sips` utility into a cached PNG preview.
+
 > **Unsigned build notice.** The local package produced here is **not
 > code-signed** and **not notarized**. macOS Gatekeeper may warn on first
 > launch. This is expected for local development builds.

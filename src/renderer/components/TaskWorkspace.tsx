@@ -96,7 +96,9 @@ export function TaskWorkspace({
           event.kind === 'stderr' ? 'error' : 'normal'
         )
         outputCounter.current += Math.max(lines.length, 1)
-        if (lines.length) setOutput((current) => [...current, ...lines].slice(-300))
+        if (lines.length) {
+          setOutput((current) => appendUniqueOutput(current, lines))
+        }
       }
       if (event.kind === 'changes') {
         setSelectedChanges(new Set((event.changedFiles ?? []).map((file) => file.path)))
@@ -110,7 +112,9 @@ export function TaskWorkspace({
             kind === 'stderr' ? 'error' : 'normal'
           )
           outputCounter.current += Math.max(lines.length, 1)
-          if (lines.length) setOutput((current) => [...current, ...lines].slice(-300))
+          if (lines.length) {
+            setOutput((current) => appendUniqueOutput(current, lines))
+          }
           outputBuffer.current[kind] = ''
         }
         void api.getAgentTask(event.taskId).then((latest) => {
@@ -438,6 +442,18 @@ function applyTaskEvent(current: AgentTask, event: AgentTaskEvent): AgentTask {
 
 function isFinished(status?: AgentTask['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
+function appendUniqueOutput(
+  current: AgentOutputLine[],
+  incoming: AgentOutputLine[]
+): AgentOutputLine[] {
+  const next = [...current]
+  for (const line of incoming) {
+    if (next[next.length - 1]?.text === line.text) continue
+    next.push(line)
+  }
+  return next.slice(-300)
 }
 
 function playTaskBell(): void {

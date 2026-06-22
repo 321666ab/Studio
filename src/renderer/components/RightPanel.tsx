@@ -6,7 +6,6 @@ import {
   ListTodo,
   PanelRightClose,
   Plus,
-  Settings as SettingsIcon,
   TerminalSquare,
   X
 } from 'lucide-react'
@@ -37,7 +36,6 @@ interface RightPanelProps {
   settings: Settings
   availability: AgentAvailability[]
   onCollapse: () => void
-  onOpenSettings: () => void
 }
 
 const STATUS_LABEL: Record<TerminalTaskStatus, string> = {
@@ -53,8 +51,7 @@ export function RightPanel({
   selectedPath,
   settings,
   availability,
-  onCollapse,
-  onOpenSettings
+  onCollapse
 }: RightPanelProps): JSX.Element {
   const [mode, setMode] = useState<'tasks' | 'terminal'>('tasks')
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -236,14 +233,6 @@ export function RightPanel({
         </div>
 
         <div className="right-panel-actions">
-          <button
-            className="icon-btn"
-            title="AI 与终端设置"
-            aria-label="打开 AI 与终端设置"
-            onClick={onOpenSettings}
-          >
-            <SettingsIcon size={14} strokeWidth={1.8} />
-          </button>
           <button
             className={`icon-btn${activeTab?.panes.length === 2 ? ' active' : ''}`}
             title={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}

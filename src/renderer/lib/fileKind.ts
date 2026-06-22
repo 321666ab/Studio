@@ -1,9 +1,17 @@
 /** Renderer-side mirror of the main process preview scheme (kept in sync by contract). */
 export const PREVIEW_SCHEME = 'app-preview'
 
-export type FileKind = 'pdf' | 'image' | 'text' | 'markdown' | 'office' | 'other'
+export type FileKind =
+  | 'pdf'
+  | 'image'
+  | 'quicklook'
+  | 'text'
+  | 'markdown'
+  | 'office'
+  | 'other'
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg'])
+const QUICKLOOK_IMAGE_EXT = new Set(['.heic', '.heif'])
 const MARKDOWN_EXT = new Set(['.md', '.markdown'])
 const OFFICE_EXT = new Set(['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'])
 const TEXT_EXT = new Set([
@@ -43,6 +51,7 @@ export function fileKind(name: string): FileKind {
   const ext = extOf(name)
   if (ext === '.pdf') return 'pdf'
   if (IMAGE_EXT.has(ext)) return 'image'
+  if (QUICKLOOK_IMAGE_EXT.has(ext)) return 'quicklook'
   if (MARKDOWN_EXT.has(ext)) return 'markdown'
   if (OFFICE_EXT.has(ext)) return 'office'
   if (TEXT_EXT.has(ext)) return 'text'
@@ -56,6 +65,7 @@ export function kindLabel(name: string): string {
     case 'pdf':
       return 'PDF 文档'
     case 'image':
+    case 'quicklook':
       return `${ext} 图片`
     case 'markdown':
       return 'Markdown 文档'

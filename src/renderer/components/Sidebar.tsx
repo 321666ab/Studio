@@ -28,6 +28,9 @@ export function Sidebar({
   return (
     <>
       <div className="section-head">
+        <span className="section-title" title={project?.name ?? 'Studio'}>
+          {project?.name ?? 'Studio'}
+        </span>
         <span className="spacer" />
         <button className="icon-btn" title="打开文件夹…" onClick={onOpenProject}>
           <FolderInput size={15} strokeWidth={1.8} />

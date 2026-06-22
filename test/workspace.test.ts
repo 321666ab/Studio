@@ -73,4 +73,52 @@ describe('prepareWorkspace', () => {
       await fs.rm(root, { recursive: true, force: true })
     }
   })
+
+  it('falls back to a temp copy for a git repository with an unborn HEAD', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-unborn-test-'))
+    try {
+      await execFileAsync('git', ['init'], { cwd: root })
+      await fs.writeFile(path.join(root, 'draft.txt'), 'draft')
+      const workspace = await prepareWorkspace(root)
+      try {
+        expect(workspace.isGitWorktree).toBe(false)
+        await expect(fs.readFile(path.join(workspace.path, 'draft.txt'), 'utf-8')).resolves.toBe(
+          'draft'
+        )
+      } finally {
+        await workspace.cleanup()
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a project subdirectory scoped to a temp copy', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'studio-subdir-test-'))
+    const project = path.join(root, 'project')
+    try {
+      await execFileAsync('git', ['init'], { cwd: root })
+      await fs.mkdir(project)
+      await fs.writeFile(path.join(root, 'outside.txt'), 'outside')
+      await fs.writeFile(path.join(project, 'inside.txt'), 'inside')
+      await execFileAsync('git', ['add', '.'], { cwd: root })
+      await execFileAsync(
+        'git',
+        ['-c', 'user.name=Studio Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'base'],
+        { cwd: root }
+      )
+      const workspace = await prepareWorkspace(project)
+      try {
+        expect(workspace.isGitWorktree).toBe(false)
+        await expect(fs.readFile(path.join(workspace.path, 'inside.txt'), 'utf-8')).resolves.toBe(
+          'inside'
+        )
+        await expect(fs.stat(path.join(workspace.path, 'outside.txt'))).rejects.toThrow()
+      } finally {
+        await workspace.cleanup()
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
 })

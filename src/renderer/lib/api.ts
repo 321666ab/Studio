@@ -50,6 +50,9 @@ export const api = {
   async quickLook(filePath: string): Promise<QuickLookPreview> {
     return unwrap(await window.studio.quickLook(filePath))
   },
+  async showPathContextMenu(targetPath: string): Promise<void> {
+    return unwrap(await window.studio.showPathContextMenu(targetPath))
+  },
   // --- Settings ----------------------------------------------------------
   async getSettings(): Promise<Settings> {
     return unwrap(await window.studio.settings.get())

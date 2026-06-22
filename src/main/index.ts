@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { IPC } from '../shared/types.js'
@@ -19,7 +19,7 @@ import { getFileInfo, readDir, readFileText, writeMarkdown } from './fileService
 import { PtyManager, registerPtyHandlers } from './pty.js'
 import { resolveWithinRoot } from './security.js'
 import { SettingsStore, defaultSettingsPath } from './settings.js'
-import { AgentAvailabilityCache } from './agentAvailability.js'
+import { AgentAvailabilityCache, detectLoginShellPath } from './agentAvailability.js'
 import { AgentTaskManager } from './agentTaskManager.js'
 import {
   PREVIEW_SCHEME,
@@ -43,6 +43,7 @@ let agentTaskManager: AgentTaskManager | null = null
 let lastBypass = true
 let lastTimeoutMs = 10 * 60 * 1000
 let lastModels = { claude: '', codex: '' }
+let loginShellPath = process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'
 
 registerPreviewSchemePrivileges()
 registerQuickLookSchemePrivileges()
@@ -156,6 +157,26 @@ function registerHandlers(): void {
     try {
       if (!quickLookService) throw new Error('快速预览尚未就绪')
       return ok(await quickLookService.create(projectState.requireRoot(), filePath))
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(IPC.fs.showPathContextMenu, async (_e, targetPath: string) => {
+    try {
+      const root = projectState.requireRoot()
+      const safe = await resolveWithinRoot(root, targetPath)
+      const relative = path.relative(root, safe).split(path.sep).join('/') || '.'
+      await new Promise<void>((resolve) => {
+        const menu = Menu.buildFromTemplate([
+          {
+            label: '复制相对路径',
+            click: () => clipboard.writeText(relative)
+          }
+        ])
+        menu.popup({ window: mainWindow ?? undefined, callback: resolve })
+      })
+      return ok(undefined)
     } catch (err) {
       return fail(err)
     }
@@ -330,6 +351,7 @@ app.whenReady().then(async () => {
   quickLookService.registerProtocol()
 
   settingsStore = new SettingsStore(defaultSettingsPath(app.getPath('userData')))
+  loginShellPath = await detectLoginShellPath()
   const initialSettings = await settingsStore.get()
   if (initialSettings.general.restoreLastProject && initialSettings.general.lastProjectPath) {
     await projectState.set(initialSettings.general.lastProjectPath).catch(() => undefined)
@@ -340,6 +362,18 @@ app.whenReady().then(async () => {
     getBypass: () => lastBypass,
     getTimeoutMs: () => lastTimeoutMs,
     getModel: (provider) => lastModels[provider],
+    getExecutable: async (provider) => {
+      const result = (await requireAvailability().get(Date.now())).find(
+        (item) => item.provider === provider
+      )
+      if (!result?.available || !result.path) {
+        throw new Error(
+          `未检测到 ${provider === 'claude' ? 'Claude' : 'Codex'} CLI，请先在终端完成安装和登录`
+        )
+      }
+      return result.path
+    },
+    getLoginPath: () => loginShellPath,
     emit: (event: AgentTaskEvent) => mainWindow?.webContents.send(IPC.agent.onEvent, event)
   })
   // Seed the manager's settings-derived knobs and keep them current on update.

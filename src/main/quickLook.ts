@@ -12,7 +12,16 @@ const execFileAsync = promisify(execFile)
 
 export const QUICK_LOOK_SCHEME = 'app-quicklook'
 
-const OFFICE_EXTENSIONS = new Set(['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'])
+const QUICK_LOOK_EXTENSIONS = new Set([
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.heic',
+  '.heif'
+])
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -89,7 +98,7 @@ export class QuickLookService {
   async create(projectRoot: string, filePath: string): Promise<QuickLookPreview> {
     const safePath = await resolveWithinRoot(projectRoot, filePath)
     const ext = path.extname(safePath).toLowerCase()
-    if (!OFFICE_EXTENSIONS.has(ext)) throw new Error('快速预览不支持此文件类型')
+    if (!QUICK_LOOK_EXTENSIONS.has(ext)) throw new Error('快速预览不支持此文件类型')
 
     const stat = await fs.stat(safePath)
     const id = createHash('sha256')
@@ -106,6 +115,28 @@ export class QuickLookService {
     const outputDir = path.join(this.cacheRoot, id)
     await fs.rm(outputDir, { recursive: true, force: true })
     await fs.mkdir(outputDir, { recursive: true })
+
+    if (ext === '.heic' || ext === '.heif') {
+      const converted = path.join(outputDir, 'image.png')
+      try {
+        await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', safePath, '--out', converted], {
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024
+        })
+        await fs.writeFile(
+          path.join(outputDir, 'Preview.html'),
+          '<!doctype html><html><head><meta charset="utf-8"><style>html,body{height:100%;margin:0;background:#ececee}body{display:flex;align-items:center;justify-content:center;overflow:auto}img{display:block;max-width:100%;height:auto;box-shadow:0 1px 8px rgba(0,0,0,.18)}</style></head><body><img src="image.png" alt="HEIC preview"></body></html>',
+          'utf-8'
+        )
+      } catch (error) {
+        await fs.rm(outputDir, { recursive: true, force: true })
+        throw new Error(
+          error instanceof Error ? `HEIC 预览转换失败：${error.message}` : 'HEIC 预览转换失败'
+        )
+      }
+      this.previews.set(id, outputDir)
+      return { html: await this.readPreviewHtml(id, outputDir) }
+    }
 
     try {
       await execFileAsync('/usr/bin/qlmanage', ['-p', '-o', outputDir, safePath], {

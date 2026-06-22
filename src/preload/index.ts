@@ -41,6 +41,8 @@ const api: StudioApi = {
     ipcRenderer.invoke(IPC.fs.openPath, targetPath) as Promise<IpcResult<void>>,
   quickLook: (filePath: string) =>
     ipcRenderer.invoke(IPC.fs.quickLook, filePath) as Promise<IpcResult<QuickLookPreview>>,
+  showPathContextMenu: (targetPath: string) =>
+    ipcRenderer.invoke(IPC.fs.showPathContextMenu, targetPath) as Promise<IpcResult<void>>,
   pty: {
     create: (options: PtyCreateOptions) =>
       ipcRenderer.invoke(IPC.pty.create, options) as Promise<IpcResult<void>>,

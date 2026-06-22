@@ -45,6 +45,19 @@ async function which(binary: string): Promise<string | undefined> {
   }
 }
 
+/** Capture PATH after the user's login shell has loaded its profile files. */
+export async function detectLoginShellPath(): Promise<string> {
+  const shell = process.env.SHELL || '/bin/bash'
+  try {
+    const { stdout } = await execFileAsync(shell, ['-l', '-c', 'printf %s \"$PATH\"'], {
+      timeout: 5000
+    })
+    return stdout.trim() || process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'
+  } catch {
+    return process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'
+  }
+}
+
 /** Best-effort `--version`; absence is not fatal to availability. */
 async function probeVersion(binaryPath: string): Promise<string | undefined> {
   try {
