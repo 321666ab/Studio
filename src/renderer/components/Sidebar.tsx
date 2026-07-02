@@ -10,7 +10,7 @@ interface SidebarProps {
   selectedPath: string | null
   onOpenProject: () => void
   onSelectFile: (entry: DirEntry) => void
-  onAddToAiContext: (entry: DirEntry) => void
+  onCopyRelativePath: (relativePath: string) => void
   onCollapse: () => void
   onOpenSettings: () => void
 }
@@ -23,7 +23,7 @@ export function Sidebar({
   selectedPath,
   onOpenProject,
   onSelectFile,
-  onAddToAiContext,
+  onCopyRelativePath,
   onCollapse,
   onOpenSettings
 }: SidebarProps): JSX.Element {
@@ -68,7 +68,7 @@ export function Sidebar({
           roots={roots}
           selectedPath={selectedPath}
           onSelectFile={onSelectFile}
-          onAddToAiContext={onAddToAiContext}
+          onCopyRelativePath={onCopyRelativePath}
         />
       )}
 

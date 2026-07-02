@@ -2,10 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 export const LEFT_DEFAULT = 280
 export const RIGHT_DEFAULT = 320
-const LEFT_MIN = 200
-const LEFT_MAX = 460
-const RIGHT_MIN = 240
-const RIGHT_MAX = 520
 
 interface PanelState {
   leftWidth: number
@@ -16,8 +12,9 @@ interface PanelState {
 
 const STORAGE_KEY = 'studio.panels.v1'
 
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v))
+function normalizeWidth(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.round(value))
 }
 
 function load(): PanelState {
@@ -32,8 +29,8 @@ function load(): PanelState {
     if (!raw) return fallback
     const parsed = JSON.parse(raw) as Partial<PanelState>
     return {
-      leftWidth: clamp(parsed.leftWidth ?? LEFT_DEFAULT, LEFT_MIN, LEFT_MAX),
-      rightWidth: clamp(parsed.rightWidth ?? RIGHT_DEFAULT, RIGHT_MIN, RIGHT_MAX),
+      leftWidth: normalizeWidth(parsed.leftWidth, LEFT_DEFAULT),
+      rightWidth: normalizeWidth(parsed.rightWidth, RIGHT_DEFAULT),
       leftCollapsed: !!parsed.leftCollapsed,
       rightCollapsed: !!parsed.rightCollapsed
     }
@@ -79,11 +76,11 @@ export function usePanels(): PanelsController {
     []
   )
   const setLeftWidth = useCallback(
-    (w: number) => setState((s) => ({ ...s, leftWidth: clamp(w, LEFT_MIN, LEFT_MAX) })),
+    (w: number) => setState((s) => ({ ...s, leftWidth: normalizeWidth(w, s.leftWidth) })),
     []
   )
   const setRightWidth = useCallback(
-    (w: number) => setState((s) => ({ ...s, rightWidth: clamp(w, RIGHT_MIN, RIGHT_MAX) })),
+    (w: number) => setState((s) => ({ ...s, rightWidth: normalizeWidth(w, s.rightWidth) })),
     []
   )
   const resetLeft = useCallback(
@@ -98,8 +95,8 @@ export function usePanels(): PanelsController {
     (leftWidth: number, rightWidth: number) =>
       setState((s) => ({
         ...s,
-        leftWidth: clamp(leftWidth, LEFT_MIN, LEFT_MAX),
-        rightWidth: clamp(rightWidth, RIGHT_MIN, RIGHT_MAX)
+        leftWidth: normalizeWidth(leftWidth, s.leftWidth),
+        rightWidth: normalizeWidth(rightWidth, s.rightWidth)
       })),
     []
   )

@@ -41,6 +41,13 @@ export interface QuickLookPreview {
   html: string
 }
 
+export type PathContextMenuAction = 'open-in-finder' | 'copy-file' | 'copy-relative-path'
+
+export interface PathContextMenuResult {
+  action: PathContextMenuAction
+  relativePath: string
+}
+
 export interface PtyDataEvent {
   terminalId: string
   data: string
@@ -69,6 +76,7 @@ export interface PtyCreateOptions {
 export type AgentProvider = 'claude' | 'codex'
 
 export type ColorScheme = 'system' | 'light' | 'dark'
+export type ResolvedColorScheme = 'light' | 'dark'
 
 export interface GeneralSettings {
   /** Reopen the last project automatically on launch. */
@@ -93,8 +101,6 @@ export interface AiSettings {
   bypassPermissions: boolean
   /** Hard ceiling on a single task's wall-clock runtime, in milliseconds. */
   taskTimeoutMs: number
-  /** Maximum provider spend allowed for one Claude task; 0 disables the limit. */
-  maxBudgetUsd: number
 }
 
 export interface NotificationSettings {
@@ -110,6 +116,45 @@ export interface TerminalSettings {
   fontSize: number
   /** Scrollback buffer size in lines. */
   scrollback: number
+  /** Paste copied relative paths into the active terminal input stream. */
+  autoPastePath: boolean
+}
+
+export type HotkeyAction =
+  | 'focus-claude-terminal'
+  | 'focus-codex-terminal'
+  | 'paste-preset-text'
+
+export interface HotkeySlot {
+  id: number
+  enabled: boolean
+  accelerator: string
+  action: HotkeyAction
+  presetText: string
+}
+
+export interface HotkeyTriggerEvent {
+  action: HotkeyAction
+  presetText: string
+}
+
+export type TerminalSessionStatus =
+  | 'starting'
+  | 'idle'
+  | 'active'
+  | 'exited'
+  | 'error'
+  | 'closed'
+
+export interface TerminalSessionInfo {
+  id: string
+  agent: PtyAgent
+  label: string
+  status: TerminalSessionStatus
+  paneCount: number
+  active: boolean
+  closed: boolean
+  updatedAt: number
 }
 
 export interface LayoutSettings {
@@ -132,13 +177,20 @@ export interface Settings {
   ai: AiSettings
   notifications: NotificationSettings
   terminal: TerminalSettings
+  hotkeys: HotkeySlot[]
   appearance: AppearanceSettings
   layout: LayoutSettings
 }
 
 /** Deep-partial patch accepted by settings:update. */
-export type SettingsPatch = {
-  [K in keyof Settings]?: Partial<Settings[K]>
+export interface SettingsPatch {
+  general?: Partial<GeneralSettings>
+  ai?: Partial<AiSettings>
+  notifications?: Partial<NotificationSettings>
+  terminal?: Partial<TerminalSettings>
+  hotkeys?: Array<Partial<HotkeySlot> | null | undefined>
+  appearance?: Partial<AppearanceSettings>
+  layout?: Partial<LayoutSettings>
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +372,13 @@ export const IPC = {
   settings: {
     get: 'settings:get',
     update: 'settings:update',
-    onOpen: 'settings:onOpen'
+    onOpen: 'settings:onOpen',
+    systemColorScheme: 'settings:systemColorScheme',
+    onSystemColorSchemeChange: 'settings:onSystemColorSchemeChange'
+  },
+  hotkeys: {
+    setSuspended: 'hotkeys:setSuspended',
+    onTrigger: 'hotkeys:onTrigger'
   },
   skills: {
     list: 'skills:list',
@@ -351,7 +409,7 @@ export interface StudioApi {
   quickLook: (filePath: string) => Promise<IpcResult<QuickLookPreview>>
   showPathContextMenu: (
     targetPath: string
-  ) => Promise<IpcResult<'copy-relative-path' | 'add-ai-context' | null>>
+  ) => Promise<IpcResult<PathContextMenuResult | null>>
   estimateContext: (paths: string[]) => Promise<IpcResult<AgentContextEstimate>>
   pty: {
     create: (options: PtyCreateOptions) => Promise<IpcResult<void>>
@@ -365,6 +423,12 @@ export interface StudioApi {
     get: () => Promise<IpcResult<Settings>>
     update: (patch: SettingsPatch) => Promise<IpcResult<Settings>>
     onOpen: (listener: () => void) => () => void
+    getSystemColorScheme: () => Promise<IpcResult<ResolvedColorScheme>>
+    onSystemColorSchemeChange: (listener: (scheme: ResolvedColorScheme) => void) => () => void
+  }
+  hotkeys: {
+    setSuspended: (suspended: boolean) => void
+    onTrigger: (listener: (event: HotkeyTriggerEvent) => void) => () => void
   }
   skills: {
     list: () => Promise<IpcResult<AgentSkill[]>>

@@ -3,8 +3,8 @@ import type { AppearanceSettings } from '../../shared/types'
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   colorScheme: 'system',
-  panelOpacity: 0.64,
-  blur: 32,
+  panelOpacity: 0.52,
+  blur: 36,
   animationMs: 180,
   radius: 12,
   inset: 7

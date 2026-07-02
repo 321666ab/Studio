@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bell,
   Bot,
   CheckCircle2,
   CircleAlert,
+  History,
+  Keyboard,
   Monitor,
+  Play,
   RotateCcw,
   Settings2,
   TerminalSquare,
@@ -14,19 +17,30 @@ import type {
   AgentAvailability,
   AgentProvider,
   Settings,
-  SettingsPatch
+  SettingsPatch,
+  TerminalSessionInfo
 } from '../../shared/types'
+import { RECOMMENDED_HOTKEYS } from '../../shared/hotkeyPresets'
 
-type SettingsSection = 'general' | 'ai' | 'notifications' | 'terminal' | 'appearance'
+type SettingsSection =
+  | 'general'
+  | 'ai'
+  | 'notifications'
+  | 'terminal'
+  | 'hotkeys'
+  | 'sessions'
+  | 'appearance'
 
 interface SettingsPanelProps {
   open: boolean
   settings: Settings
   availability: AgentAvailability[]
+  terminalSessions: TerminalSessionInfo[]
   loading: boolean
   error: string | null
   onChange: (patch: SettingsPatch) => void
   onReset: () => void
+  onLoadTerminalSession: (sessionId: string) => void
   onClose: () => void
 }
 
@@ -39,30 +53,92 @@ const SECTIONS: Array<{
   { id: 'ai', label: 'AI', icon: Bot },
   { id: 'notifications', label: '通知', icon: Bell },
   { id: 'terminal', label: '终端', icon: TerminalSquare },
+  { id: 'hotkeys', label: '热键', icon: Keyboard },
+  { id: 'sessions', label: '会话', icon: History },
   { id: 'appearance', label: '外观', icon: Monitor }
 ]
+
+const HOTKEY_ACTION_LABELS = {
+  'focus-claude-terminal': '打开/聚焦 Claude 终端',
+  'focus-codex-terminal': '打开/聚焦 Codex 终端',
+  'paste-preset-text': '粘贴预设文本'
+} as const
+
+const SESSION_STATUS_LABELS: Record<TerminalSessionInfo['status'], string> = {
+  starting: '启动中',
+  idle: '空闲',
+  active: '活跃',
+  exited: '已退出',
+  error: '错误',
+  closed: '已关闭'
+}
 
 export function SettingsPanel({
   open,
   settings,
   availability,
+  terminalSessions,
   loading,
   error,
   onChange,
   onReset,
+  onLoadTerminalSession,
   onClose
 }: SettingsPanelProps): JSX.Element | null {
   const [section, setSection] = useState<SettingsSection>('general')
+  const [recordingHotkey, setRecordingHotkey] = useState<number | null>(null)
+  const [recordingMessage, setRecordingMessage] = useState('按下组合键')
   const dialogRef = useRef<HTMLElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
+  const recordingHotkeyRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    recordingHotkeyRef.current = recordingHotkey
+  }, [recordingHotkey])
+
+  const updateHotkey = useCallback((
+    index: number,
+    patch: NonNullable<SettingsPatch['hotkeys']>[number]
+  ): void => {
+    const hotkeys = Array.from({ length: settings.hotkeys.length }, (_, itemIndex) =>
+      itemIndex === index ? patch : null
+    )
+    onChange({ hotkeys })
+  }, [onChange, settings.hotkeys.length])
 
   useEffect(() => {
     if (!open) return
     previousFocus.current = document.activeElement as HTMLElement | null
-    requestAnimationFrame(() => closeRef.current?.focus())
 
     const onKeyDown = (event: KeyboardEvent): void => {
+      const activeRecording = recordingHotkeyRef.current
+      if (activeRecording !== null) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        if (event.key === 'Escape') {
+          setRecordingHotkey(null)
+          return
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+          updateHotkey(activeRecording, { accelerator: '', enabled: false })
+          setRecordingHotkey(null)
+          return
+        }
+        if (isModifierKey(event.key)) {
+          setRecordingMessage(formatPressedModifiers(event))
+          return
+        }
+        const accelerator = formatAccelerator(event)
+        if (!accelerator) {
+          setRecordingMessage('需要包含 Command / Control / Option / Shift')
+          return
+        }
+        updateHotkey(activeRecording, { accelerator, enabled: true })
+        setRecordingHotkey(null)
+        return
+      }
       if (event.key === 'Escape') {
         event.preventDefault()
         onClose()
@@ -83,12 +159,17 @@ export function SettingsPanel({
         first.focus()
       }
     }
-    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
     return () => {
-      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onKeyDown, true)
       previousFocus.current?.focus()
     }
-  }, [open, onClose])
+  }, [open, onClose, updateHotkey])
+
+  const startRecordingHotkey = (index: number): void => {
+    setRecordingHotkey(index)
+    setRecordingMessage('按下组合键')
+  }
 
   if (!open) return null
 
@@ -105,7 +186,7 @@ export function SettingsPanel({
         <header className="settings-head">
           <div>
             <strong id="settings-title">Studio 设置</strong>
-            <span>AI、通知、终端和工作区外观</span>
+            <span>AI、通知、终端、热键和工作区外观</span>
           </div>
           <button
             ref={closeRef}
@@ -237,15 +318,6 @@ export function SettingsPanel({
                           onChange({ ai: { taskTimeoutMs: minutes * 60_000 } })
                         }
                       />
-                      <SliderRow
-                        label="Claude 单任务预算"
-                        value={settings.ai.maxBudgetUsd}
-                        min={0}
-                        max={20}
-                        step={0.5}
-                        suffix=" USD"
-                        onChange={(maxBudgetUsd) => onChange({ ai: { maxBudgetUsd } })}
-                      />
                     </SettingsGroup>
                   </>
                 )}
@@ -280,6 +352,17 @@ export function SettingsPanel({
                 )}
 
                 {section === 'terminal' && (
+                  <>
+                  <SettingsGroup title="终端行为">
+                    <ToggleRow
+                      label="自动粘贴路径"
+                      detail="复制相对路径时，同时把“（相对路径）”写入当前活跃终端。"
+                      checked={settings.terminal.autoPastePath}
+                      onChange={(autoPastePath) =>
+                        onChange({ terminal: { autoPastePath } })
+                      }
+                    />
+                  </SettingsGroup>
                   <SettingsGroup title="终端显示">
                     <SliderRow
                       label="字体大小"
@@ -299,6 +382,115 @@ export function SettingsPanel({
                       suffix=" 行"
                       onChange={(scrollback) => onChange({ terminal: { scrollback } })}
                     />
+                  </SettingsGroup>
+                  </>
+                )}
+
+                {section === 'hotkeys' && (
+                  <SettingsGroup title="自定义热键">
+                    <div className="hotkey-help">
+                      <span>
+                        点击录制后直接按组合键，保存后会自动启用；按 Delete 清空，按 Esc 取消。
+                      </span>
+                      <button
+                        className="text-btn"
+                        type="button"
+                        onClick={() => onChange({ hotkeys: RECOMMENDED_HOTKEYS })}
+                      >
+                        应用推荐热键
+                      </button>
+                    </div>
+                    {settings.hotkeys.map((hotkey, index) => (
+                      <div className="hotkey-row" key={hotkey.id}>
+                        <label className="hotkey-enable">
+                          <input
+                            type="checkbox"
+                            checked={hotkey.enabled}
+                            onChange={(event) =>
+                              updateHotkey(index, { enabled: event.currentTarget.checked })
+                            }
+                          />
+                          <span>热键 {index + 1}</span>
+                        </label>
+                        <button
+                          type="button"
+                          className={`hotkey-recorder${
+                            recordingHotkey === index ? ' recording' : ''
+                          }`}
+                          title="点击后按下新的组合键"
+                          onClick={(event) => {
+                            event.currentTarget.focus()
+                            startRecordingHotkey(index)
+                          }}
+                        >
+                          <span>
+                            {recordingHotkey === index
+                              ? recordingMessage
+                              : hotkey.accelerator || '未设置'}
+                          </span>
+                          <small>{recordingHotkey === index ? '录制中' : '点击录制'}</small>
+                          {recordingHotkey !== index && hotkey.accelerator && !hotkey.enabled && (
+                            <em>未启用</em>
+                          )}
+                        </button>
+                        <select
+                          value={hotkey.action}
+                          onChange={(event) =>
+                            updateHotkey(index, {
+                              action: event.currentTarget.value as Settings['hotkeys'][number]['action']
+                            })
+                          }
+                        >
+                          {Object.entries(HOTKEY_ACTION_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        {hotkey.action === 'paste-preset-text' && (
+                          <input
+                            className="hotkey-preset"
+                            value={hotkey.presetText}
+                            placeholder="要粘贴到当前终端的预设文本"
+                            onChange={(event) =>
+                              updateHotkey(index, { presetText: event.currentTarget.value })
+                            }
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </SettingsGroup>
+                )}
+
+                {section === 'sessions' && (
+                  <SettingsGroup title="终端会话">
+                    {terminalSessions.length === 0 ? (
+                      <div className="session-empty">还没有可载入的终端会话。</div>
+                    ) : (
+                      <div className="session-list">
+                        {terminalSessions.map((session) => (
+                          <div className="session-row" key={session.id}>
+                            <span className={`session-agent ${session.agent}`}>
+                              {session.agent === 'claude' ? 'Claude' : 'Codex'}
+                            </span>
+                            <span className="session-main">
+                              <strong>{session.label}</strong>
+                              <small>
+                                {session.closed ? '历史' : session.active ? '当前' : '打开'} ·{' '}
+                                {SESSION_STATUS_LABELS[session.status]} · {session.paneCount} 个窗格
+                              </small>
+                            </span>
+                            <button
+                              className="text-btn"
+                              onClick={() => onLoadTerminalSession(session.id)}
+                            >
+                              <Play size={13} />
+                              {session.closed ? '载入' : '切换'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </SettingsGroup>
                 )}
 
@@ -358,8 +550,8 @@ export function SettingsPanel({
                       <SliderRow
                         label="文件栏宽度"
                         value={settings.layout.leftWidth}
-                        min={200}
-                        max={460}
+                        min={0}
+                        max={1200}
                         step={4}
                         suffix=" px"
                         onChange={(leftWidth) => onChange({ layout: { leftWidth } })}
@@ -367,8 +559,8 @@ export function SettingsPanel({
                       <SliderRow
                         label="右侧栏宽度"
                         value={settings.layout.rightWidth}
-                        min={240}
-                        max={520}
+                        min={0}
+                        max={1200}
                         step={4}
                         suffix=" px"
                         onChange={(rightWidth) => onChange({ layout: { rightWidth } })}
@@ -391,6 +583,72 @@ export function SettingsPanel({
       </section>
     </div>
   )
+}
+
+function isModifierKey(key: string): boolean {
+  return key === 'Meta' || key === 'Control' || key === 'Alt' || key === 'Shift'
+}
+
+type HotkeyEventLike = Pick<
+  KeyboardEvent,
+  'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
+>
+
+function formatPressedModifiers(event: HotkeyEventLike): string {
+  const parts: string[] = []
+  if (event.metaKey || event.ctrlKey) parts.push('CmdOrCtrl')
+  if (event.altKey) parts.push('Alt')
+  if (event.shiftKey) parts.push('Shift')
+  return parts.length ? `${parts.join('+')}+…` : '按下组合键'
+}
+
+function formatAccelerator(event: HotkeyEventLike): string | null {
+  const key = normalizeAcceleratorKey(event)
+  if (!key) return null
+  const parts: string[] = []
+  if (event.metaKey || event.ctrlKey) parts.push('CmdOrCtrl')
+  if (event.altKey) parts.push('Alt')
+  if (event.shiftKey) parts.push('Shift')
+  if (!parts.length) return null
+  parts.push(key)
+  return parts.join('+')
+}
+
+function normalizeAcceleratorKey(event: HotkeyEventLike): string | null {
+  const { key, code } = event
+  if (isModifierKey(key)) return null
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3)
+  if (/^Digit\d$/.test(code)) return code.slice(5)
+  if (/^Numpad\d$/.test(code)) return `Num${code.slice(6)}`
+  const codeAliases: Record<string, string> = {
+    Space: 'Space',
+    Minus: 'Minus',
+    Equal: 'Equal',
+    BracketLeft: 'BracketLeft',
+    BracketRight: 'BracketRight',
+    Backslash: 'Backslash',
+    Semicolon: 'Semicolon',
+    Quote: 'Quote',
+    Comma: 'Comma',
+    Period: 'Period',
+    Slash: 'Slash',
+    Backquote: 'Backquote'
+  }
+  if (codeAliases[code]) return codeAliases[code]
+  if (key === ' ') return 'Space'
+  if (key === '+') return 'Plus'
+  if (key.length === 1) return key.toUpperCase()
+  const aliases: Record<string, string> = {
+    Escape: 'Esc',
+    ArrowUp: 'Up',
+    ArrowDown: 'Down',
+    ArrowLeft: 'Left',
+    ArrowRight: 'Right'
+  }
+  if (aliases[key]) return aliases[key]
+  if (/^F\d{1,2}$/.test(key)) return key
+  if (/^(Tab|Enter|Home|End|PageUp|PageDown)$/.test(key)) return key
+  return key.length > 1 ? key : null
 }
 
 function SettingsGroup({

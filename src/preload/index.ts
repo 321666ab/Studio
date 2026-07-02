@@ -11,12 +11,15 @@ import type {
   ApplyChangesResult,
   DirEntry,
   FileInfo,
+  HotkeyTriggerEvent,
   IpcResult,
+  PathContextMenuResult,
   ProjectInfo,
   PtyCreateOptions,
   PtyDataEvent,
   PtyExitEvent,
   ReadFileResult,
+  ResolvedColorScheme,
   Settings,
   SettingsPatch,
   WriteFileResult,
@@ -45,7 +48,7 @@ const api: StudioApi = {
     ipcRenderer.invoke(IPC.fs.quickLook, filePath) as Promise<IpcResult<QuickLookPreview>>,
   showPathContextMenu: (targetPath: string) =>
     ipcRenderer.invoke(IPC.fs.showPathContextMenu, targetPath) as Promise<
-      IpcResult<'copy-relative-path' | 'add-ai-context' | null>
+      IpcResult<PathContextMenuResult | null>
     >,
   estimateContext: (paths: string[]) =>
     ipcRenderer.invoke(IPC.fs.estimateContext, paths) as Promise<IpcResult<AgentContextEstimate>>,
@@ -76,6 +79,23 @@ const api: StudioApi = {
       const handler = () => listener()
       ipcRenderer.on(IPC.settings.onOpen, handler)
       return () => ipcRenderer.removeListener(IPC.settings.onOpen, handler)
+    },
+    getSystemColorScheme: () =>
+      ipcRenderer.invoke(IPC.settings.systemColorScheme) as Promise<
+        IpcResult<ResolvedColorScheme>
+      >,
+    onSystemColorSchemeChange: (listener: (scheme: ResolvedColorScheme) => void) => {
+      const handler = (_e: unknown, scheme: ResolvedColorScheme) => listener(scheme)
+      ipcRenderer.on(IPC.settings.onSystemColorSchemeChange, handler)
+      return () => ipcRenderer.removeListener(IPC.settings.onSystemColorSchemeChange, handler)
+    }
+  },
+  hotkeys: {
+    setSuspended: (suspended: boolean) => ipcRenderer.send(IPC.hotkeys.setSuspended, suspended),
+    onTrigger: (listener: (event: HotkeyTriggerEvent) => void) => {
+      const handler = (_e: unknown, payload: HotkeyTriggerEvent) => listener(payload)
+      ipcRenderer.on(IPC.hotkeys.onTrigger, handler)
+      return () => ipcRenderer.removeListener(IPC.hotkeys.onTrigger, handler)
     }
   },
   skills: {

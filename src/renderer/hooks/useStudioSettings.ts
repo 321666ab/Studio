@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Settings, SettingsPatch } from '../../shared/types'
+import { RECOMMENDED_HOTKEYS } from '../../shared/hotkeyPresets'
 import { api } from '../lib/api'
 
 export const FALLBACK_SETTINGS: Settings = {
@@ -13,8 +14,7 @@ export const FALLBACK_SETTINGS: Settings = {
     claudeModel: '',
     codexModel: '',
     bypassPermissions: true,
-    taskTimeoutMs: 10 * 60 * 1000,
-    maxBudgetUsd: 2
+    taskTimeoutMs: 10 * 60 * 1000
   },
   notifications: {
     notifyOnTaskComplete: true,
@@ -23,12 +23,14 @@ export const FALLBACK_SETTINGS: Settings = {
   },
   terminal: {
     fontSize: 13,
-    scrollback: 5000
+    scrollback: 5000,
+    autoPastePath: false
   },
+  hotkeys: RECOMMENDED_HOTKEYS,
   appearance: {
     colorScheme: 'system',
-    panelOpacity: 0.64,
-    blur: 32,
+    panelOpacity: 0.52,
+    blur: 36,
     animationMs: 180,
     radius: 12,
     inset: 7
@@ -45,6 +47,13 @@ function merge(current: Settings, patch: SettingsPatch): Settings {
     ai: { ...current.ai, ...(patch.ai ?? {}) },
     notifications: { ...current.notifications, ...(patch.notifications ?? {}) },
     terminal: { ...current.terminal, ...(patch.terminal ?? {}) },
+    hotkeys: patch.hotkeys
+      ? current.hotkeys.map((item, index) => ({
+          ...item,
+          ...(patch.hotkeys?.[index] ?? {}),
+          id: index + 1
+        }))
+      : current.hotkeys,
     appearance: { ...current.appearance, ...(patch.appearance ?? {}) },
     layout: { ...current.layout, ...(patch.layout ?? {}) }
   }

@@ -1,7 +1,22 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  shell
+} from 'electron'
+import { execFile } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { IPC } from '../shared/types.js'
+import {
+  electronInputToHotkeyPress,
+  matchesHotkeyPress
+} from '../shared/hotkeys.js'
 import type {
   AgentAvailability,
   AgentTask,
@@ -12,6 +27,7 @@ import type {
   ApplyChangesRequest,
   ApplyChangesResult,
   IpcResult,
+  PathContextMenuResult,
   ProjectInfo,
   Settings,
   SettingsPatch
@@ -48,7 +64,9 @@ let claudeCapabilities: ClaudeCapabilityService | null = null
 let lastBypass = true
 let lastTimeoutMs = 10 * 60 * 1000
 let lastModels = { claude: '', codex: '' }
-let lastMaxBudgetUsd = 2
+let lastHotkeys: Settings['hotkeys'] = []
+let hotkeysSuspended = false
+const registeredHotkeyAccelerators = new Set<string>()
 let loginShellPath = process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'
 
 registerPreviewSchemePrivileges()
@@ -59,9 +77,10 @@ function createWindow(): void {
     width: 1280,
     height: 800,
     titleBarStyle: 'hiddenInset',
-    vibrancy: 'sidebar',
-    visualEffectState: 'active',
+    vibrancy: 'under-window',
+    visualEffectState: 'followWindow',
     backgroundColor: '#00000000',
+    transparent: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -78,6 +97,19 @@ function createWindow(): void {
 
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault())
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (hotkeysSuspended || input.type !== 'keyDown') return
+    const hotkey = lastHotkeys.find((item) =>
+      matchesHotkeyPress(
+        electronInputToHotkeyPress(input),
+        item,
+        process.platform === 'darwin'
+      )
+    )
+    if (!hotkey) return
+    event.preventDefault()
+    triggerCustomHotkey(hotkey)
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -90,6 +122,92 @@ function ok<T>(value: T): IpcResult<T> {
 
 function fail<T>(err: unknown): IpcResult<T> {
   return { ok: false, error: err instanceof Error ? err.message : String(err) }
+}
+
+function copyFileToClipboard(filePath: string): void {
+  if (process.platform !== 'darwin') {
+    clipboard.writeText(filePath)
+    return
+  }
+  const script = 'set the clipboard to (POSIX file (item 1 of argv))'
+  execFile('osascript', ['-e', script, filePath], { timeout: 3000 }, (error) => {
+    if (error) clipboard.writeText(filePath)
+  })
+}
+
+function triggerCustomHotkey(hotkey: Settings['hotkeys'][number]): void {
+  if (hotkeysSuspended || !mainWindow) return
+  console.info(`[hotkeys] triggered ${hotkey.accelerator} -> ${hotkey.action}`)
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  mainWindow.focus()
+  mainWindow.webContents.send(IPC.hotkeys.onTrigger, {
+    action: hotkey.action,
+    presetText: hotkey.presetText
+  })
+}
+
+function getSystemColorScheme(): 'light' | 'dark' {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+}
+
+function broadcastSystemColorScheme(): void {
+  const scheme = getSystemColorScheme()
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC.settings.onSystemColorSchemeChange, scheme)
+  })
+}
+
+function syncGlobalHotkeys(): void {
+  if (!app.isReady()) return
+  registeredHotkeyAccelerators.forEach((accelerator) => globalShortcut.unregister(accelerator))
+  registeredHotkeyAccelerators.clear()
+  if (hotkeysSuspended) return
+
+  const seen = new Set<string>()
+  lastHotkeys.forEach((hotkey) => {
+    if (!hotkey.enabled) return
+    const accelerator = toElectronAccelerator(hotkey.accelerator)
+    if (!accelerator || seen.has(accelerator)) return
+    seen.add(accelerator)
+    if (globalShortcut.register(accelerator, () => triggerCustomHotkey(hotkey))) {
+      registeredHotkeyAccelerators.add(accelerator)
+      console.info(`[hotkeys] registered ${accelerator} -> ${hotkey.action}`)
+    } else {
+      console.warn(`[hotkeys] failed to register ${accelerator}`)
+    }
+  })
+}
+
+function toElectronAccelerator(accelerator: string): string | null {
+  const parts = accelerator
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length < 2) return null
+  const mapped = parts.map((part) => {
+    switch (part.toLowerCase()) {
+      case 'cmdorctrl':
+      case 'commandorcontrol':
+        return 'CommandOrControl'
+      case 'cmd':
+      case 'command':
+        return 'Command'
+      case 'ctrl':
+      case 'control':
+        return 'Control'
+      case 'alt':
+      case 'option':
+        return 'Alt'
+      case 'shift':
+        return 'Shift'
+      case 'esc':
+        return 'Escape'
+      default:
+        return part
+    }
+  })
+  return mapped.join('+')
 }
 
 function registerHandlers(): void {
@@ -174,23 +292,35 @@ function registerHandlers(): void {
       const root = projectState.requireRoot()
       const safe = await resolveWithinRoot(root, targetPath)
       const relative = path.relative(root, safe).split(path.sep).join('/') || '.'
-      const action = await new Promise<'copy-relative-path' | 'add-ai-context' | null>((resolve) => {
+      const result = await new Promise<PathContextMenuResult | null>((resolve) => {
+        const done = (action: PathContextMenuResult['action']) => resolve({ action, relativePath: relative })
         const menu = Menu.buildFromTemplate([
+          {
+            label: '在 Finder 中显示',
+            click: () => {
+              shell.showItemInFolder(safe)
+              done('open-in-finder')
+            }
+          },
+          {
+            label: '复制文件',
+            click: () => {
+              copyFileToClipboard(safe)
+              done('copy-file')
+            }
+          },
+          { type: 'separator' },
           {
             label: '复制相对路径',
             click: () => {
               clipboard.writeText(relative)
-              resolve('copy-relative-path')
+              done('copy-relative-path')
             }
-          },
-          {
-            label: '添加到 AI 上下文',
-            click: () => resolve('add-ai-context')
           }
         ])
         menu.popup({ window: mainWindow ?? undefined, callback: () => resolve(null) })
       })
-      return ok(action)
+      return ok(result)
     } catch (err) {
       return fail(err)
     }
@@ -216,6 +346,10 @@ function registerHandlers(): void {
     }
   })
 
+  ipcMain.handle(IPC.settings.systemColorScheme, async (): Promise<IpcResult<'light' | 'dark'>> => {
+    return ok(getSystemColorScheme())
+  })
+
   ipcMain.handle(
     IPC.settings.update,
     async (_e, patch: SettingsPatch): Promise<IpcResult<Settings>> => {
@@ -224,13 +358,21 @@ function registerHandlers(): void {
         lastBypass = next.ai.bypassPermissions
         lastTimeoutMs = next.ai.taskTimeoutMs
         lastModels = { claude: next.ai.claudeModel, codex: next.ai.codexModel }
-        lastMaxBudgetUsd = next.ai.maxBudgetUsd
+        lastHotkeys = next.hotkeys
+        syncGlobalHotkeys()
         return ok(next)
       } catch (err) {
         return fail(err)
       }
     }
   )
+
+  ipcMain.on(IPC.hotkeys.setSuspended, (_event, suspended: boolean) => {
+    const nextSuspended = suspended === true
+    if (hotkeysSuspended === nextSuspended) return
+    hotkeysSuspended = nextSuspended
+    syncGlobalHotkeys()
+  })
 
   // --- Skills ------------------------------------------------------------
   ipcMain.handle(IPC.skills.list, async (): Promise<IpcResult<AgentSkill[]>> => {
@@ -436,7 +578,6 @@ app.whenReady().then(async () => {
     getBypass: () => lastBypass,
     getTimeoutMs: () => lastTimeoutMs,
     getModel: (provider) => lastModels[provider],
-    getMaxBudgetUsd: () => lastMaxBudgetUsd,
     getSkill: (skillId) => requireCapabilities().details(skillId),
     getExecutable: getAgentExecutable,
     getLoginPath: () => loginShellPath,
@@ -449,13 +590,18 @@ app.whenReady().then(async () => {
     claude: initialSettings.ai.claudeModel,
     codex: initialSettings.ai.codexModel
   }
-  lastMaxBudgetUsd = initialSettings.ai.maxBudgetUsd
+  lastHotkeys = initialSettings.hotkeys
 
   registerHandlers()
+  nativeTheme.on('updated', broadcastSystemColorScheme)
   createWindow()
+  syncGlobalHotkeys()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+      syncGlobalHotkeys()
+    }
   })
 })
 
@@ -464,6 +610,11 @@ app.on('window-all-closed', () => {
   void quickLookService?.clear()
   void agentTaskManager?.disposeAll()
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('will-quit', () => {
+  registeredHotkeyAccelerators.forEach((accelerator) => globalShortcut.unregister(accelerator))
+  registeredHotkeyAccelerators.clear()
 })
 
 // Reference the scheme constant so it is part of the module's public surface.

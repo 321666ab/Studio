@@ -9,10 +9,13 @@ import type {
   ApplyChangesResult,
   DirEntry,
   FileInfo,
+  HotkeyTriggerEvent,
   IpcResult,
+  PathContextMenuResult,
   ProjectInfo,
   QuickLookPreview,
   ReadFileResult,
+  ResolvedColorScheme,
   Settings,
   SettingsPatch,
   WriteFileResult
@@ -54,7 +57,7 @@ export const api = {
   },
   async showPathContextMenu(
     targetPath: string
-  ): Promise<'copy-relative-path' | 'add-ai-context' | null> {
+  ): Promise<PathContextMenuResult | null> {
     return unwrap(await window.studio.showPathContextMenu(targetPath))
   },
   async estimateContext(paths: string[]): Promise<AgentContextEstimate> {
@@ -69,6 +72,18 @@ export const api = {
   },
   onOpenSettings(listener: () => void): () => void {
     return window.studio.settings.onOpen(listener)
+  },
+  async getSystemColorScheme(): Promise<ResolvedColorScheme> {
+    return unwrap(await window.studio.settings.getSystemColorScheme())
+  },
+  onSystemColorSchemeChange(listener: (scheme: ResolvedColorScheme) => void): () => void {
+    return window.studio.settings.onSystemColorSchemeChange(listener)
+  },
+  setHotkeysSuspended(suspended: boolean): void {
+    window.studio.hotkeys.setSuspended(suspended)
+  },
+  onHotkeyTrigger(listener: (event: HotkeyTriggerEvent) => void): () => void {
+    return window.studio.hotkeys.onTrigger(listener)
   },
   // --- Skills -------------------------------------------------------------
   async listSkills(): Promise<AgentSkill[]> {

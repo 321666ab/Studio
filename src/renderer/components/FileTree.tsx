@@ -8,7 +8,7 @@ interface TreeNodeProps {
   depth: number
   selectedPath: string | null
   onSelectFile: (entry: DirEntry) => void
-  onAddToAiContext: (entry: DirEntry) => void
+  onCopyRelativePath: (relativePath: string) => void
 }
 
 /**
@@ -20,7 +20,7 @@ function TreeNode({
   depth,
   selectedPath,
   onSelectFile,
-  onAddToAiContext
+  onCopyRelativePath
 }: TreeNodeProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState<DirEntry[] | null>(null)
@@ -57,8 +57,8 @@ function TreeNode({
         onClick={() => (entry.isDirectory ? toggle() : onSelectFile(entry))}
         onContextMenu={(event) => {
           event.preventDefault()
-          void api.showPathContextMenu(entry.path).then((action) => {
-            if (action === 'add-ai-context') onAddToAiContext(entry)
+          void api.showPathContextMenu(entry.path).then((result) => {
+            if (result?.action === 'copy-relative-path') onCopyRelativePath(result.relativePath)
           })
         }}
         title={entry.name}
@@ -107,7 +107,7 @@ function TreeNode({
               depth={depth + 1}
               selectedPath={selectedPath}
               onSelectFile={onSelectFile}
-              onAddToAiContext={onAddToAiContext}
+              onCopyRelativePath={onCopyRelativePath}
             />
           ))}
           {children?.length === 0 && (
@@ -128,14 +128,14 @@ interface FileTreeProps {
   roots: DirEntry[]
   selectedPath: string | null
   onSelectFile: (entry: DirEntry) => void
-  onAddToAiContext: (entry: DirEntry) => void
+  onCopyRelativePath: (relativePath: string) => void
 }
 
 export function FileTree({
   roots,
   selectedPath,
   onSelectFile,
-  onAddToAiContext
+  onCopyRelativePath
 }: FileTreeProps): JSX.Element {
   return (
     <div className="tree">
@@ -146,7 +146,7 @@ export function FileTree({
           depth={0}
           selectedPath={selectedPath}
           onSelectFile={onSelectFile}
-          onAddToAiContext={onAddToAiContext}
+          onCopyRelativePath={onCopyRelativePath}
         />
       ))}
     </div>

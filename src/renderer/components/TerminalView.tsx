@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { PtyAgent } from '../../shared/types'
@@ -13,28 +13,46 @@ interface TerminalViewProps {
   active: boolean
   fontSize: number
   scrollback: number
+  onFocus: () => void
   onStatusChange: (status: TerminalTaskStatus) => void
 }
 
-export function TerminalView({
+export interface TerminalViewHandle {
+  focus: () => void
+}
+
+export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function TerminalView({
   terminalId,
   agent,
   projectKey,
   active,
   fontSize,
   scrollback,
+  onFocus,
   onStatusChange
-}: TerminalViewProps): JSX.Element {
+}: TerminalViewProps, ref): JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const statusRef = useRef<TerminalTaskStatus>('starting')
   const idleTimerRef = useRef<number | null>(null)
   const statusChangeRef = useRef(onStatusChange)
+  const focusRef = useRef(onFocus)
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      termRef.current?.focus()
+      focusRef.current()
+    }
+  }), [])
 
   useEffect(() => {
     statusChangeRef.current = onStatusChange
   }, [onStatusChange])
+
+  useEffect(() => {
+    focusRef.current = onFocus
+  }, [onFocus])
 
   useEffect(() => {
     const host = hostRef.current
@@ -102,6 +120,7 @@ export function TerminalView({
     })
     const inputSub = term.onData((data) => {
       window.studio.pty.input(terminalId, data)
+      focusRef.current()
       if (data.includes('\r') || data.includes('\n')) {
         setStatus('active')
         scheduleIdle()
@@ -185,5 +204,13 @@ export function TerminalView({
     return () => observer.disconnect()
   }, [active, terminalId])
 
-  return <div className="term-host" ref={hostRef} role="region" aria-label="Agent 终端" />
-}
+  return (
+    <div
+      className="term-host"
+      ref={hostRef}
+      role="region"
+      aria-label="Agent 终端"
+      onMouseDown={onFocus}
+    />
+  )
+})

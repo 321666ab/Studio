@@ -186,7 +186,7 @@ export async function prepareWorkspace(
       return prepareScopedTempCopy(realSource, contextPaths)
     }
     throw new Error(
-      `工作目录超过 ${Math.round(MAX_NONGIT_COPY_BYTES / (1024 * 1024))}MB。请先把文件或目录添加到 AI 上下文，再运行范围任务`
+      `工作目录超过 ${Math.round(MAX_NONGIT_COPY_BYTES / (1024 * 1024))}MB。请缩小任务范围后再运行`
     )
   }
   return prepareTempCopy(realSource)

@@ -54,8 +54,6 @@ export interface AgentTaskManagerOptions {
   getTimeoutMs: () => number
   /** Provider-specific model; empty means inherit CLI configuration. */
   getModel: (provider: AgentProvider) => string
-  /** Maximum Claude provider spend per task; zero disables the limit. */
-  getMaxBudgetUsd: () => number
   /** Resolve an available Claude skill by its Studio identifier. */
   getSkill: (skillId: string) => Promise<AgentSkill | null>
   /** Resolve the provider CLI to an absolute path in the user's login shell. */
@@ -247,7 +245,6 @@ export class AgentTaskManager {
       prompt,
       bypassPermissions: this.options.getBypass(),
       model: this.options.getModel(provider) || undefined,
-      maxBudgetUsd: provider === 'claude' ? this.options.getMaxBudgetUsd() : undefined,
       skipGitRepoCheck: provider === 'codex' && !workspace.isGitWorktree
     })
     let child: ChildProcess
