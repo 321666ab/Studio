@@ -1,19 +1,25 @@
 # Studio
 
+![Built & reviewed with Claude Fable 5](https://img.shields.io/badge/Built%20%26%20reviewed%20with-Claude%20Fable%205-D97757)
+
 A local Electron document workbench. These instructions cover running,
 verifying, and packaging the app on macOS (Apple Silicon / arm64).
 
 ## AI workspace
 
-The right sidebar has two modes:
+The right sidebar has two modes (switchable at the top of the panel):
 
 - **Tasks** runs Claude Code or Codex non-interactively inside an isolated
-  temporary workspace. The current document can be attached as context, output
-  streams into the sidebar, and file changes can be reviewed and selectively
-  applied back to the project with hash-based conflict protection.
+  temporary workspace. Skills and context files can be attached, output
+  streams into the sidebar with a task history, and file changes can be
+  reviewed and selectively applied back to the project with hash-based
+  conflict protection. The Tasks workspace can be disabled entirely under
+  设置 → AI → 任务工作台, which reverts the right sidebar to terminal-only.
 - **Terminal** preserves direct Claude/Codex CLI sessions, tabs, and split
   panes. These sessions continue to launch in bypass mode inside the real
-  project directory.
+  project directory. The terminal renders with GPU acceleration, correct
+  CJK/emoji widths, clickable `http(s)` links, and adjustable font family,
+  size, line height, and letter spacing.
 
 Open **Studio → 设置…** or press `⌘,` to configure the default agent, optional
 model identifiers, bypass behavior, task timeout, notifications, terminal
@@ -76,3 +82,21 @@ configuration lives in `electron-builder.yml`:
 - unsigned local build (`identity: null`) — not notarized
 
 Output is written to `dist/` (e.g. `dist/mac-arm64/Studio.app`).
+
+## App icon
+
+The icon is the original artwork (`build/icon-artwork.png`) composited into a
+liquid-glass squircle by the template `build/icon.svg.tmpl`. Regenerate
+`build/icon.svg`, `icon-source.png`, the `AppIcon.iconset` sizes, and
+`icon.icns` with:
+
+```sh
+script/generate_icon.sh
+```
+
+## Attribution
+
+This project was handed over to and is maintained with **Claude Fable 5**
+(Anthropic). The badge above and the note in 设置 → 外观 → 关于 record that the
+code was built and reviewed with Fable 5; this is a project annotation, not an
+official Anthropic certification.
