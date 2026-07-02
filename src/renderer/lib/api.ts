@@ -63,6 +63,9 @@ export const api = {
   async estimateContext(paths: string[]): Promise<AgentContextEstimate> {
     return unwrap(await window.studio.estimateContext(paths))
   },
+  async openExternalUrl(url: string): Promise<void> {
+    return unwrap(await window.studio.openExternalUrl(url))
+  },
   // --- Settings ----------------------------------------------------------
   async getSettings(): Promise<Settings> {
     return unwrap(await window.studio.settings.get())

@@ -52,6 +52,8 @@ const api: StudioApi = {
     >,
   estimateContext: (paths: string[]) =>
     ipcRenderer.invoke(IPC.fs.estimateContext, paths) as Promise<IpcResult<AgentContextEstimate>>,
+  openExternalUrl: (url: string) =>
+    ipcRenderer.invoke(IPC.fs.openExternalUrl, url) as Promise<IpcResult<void>>,
   pty: {
     create: (options: PtyCreateOptions) =>
       ipcRenderer.invoke(IPC.pty.create, options) as Promise<IpcResult<void>>,

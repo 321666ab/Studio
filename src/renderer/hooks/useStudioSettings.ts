@@ -14,7 +14,8 @@ export const FALLBACK_SETTINGS: Settings = {
     claudeModel: '',
     codexModel: '',
     bypassPermissions: true,
-    taskTimeoutMs: 10 * 60 * 1000
+    taskTimeoutMs: 10 * 60 * 1000,
+    tasksEnabled: true
   },
   notifications: {
     notifyOnTaskComplete: true,
@@ -24,7 +25,10 @@ export const FALLBACK_SETTINGS: Settings = {
   terminal: {
     fontSize: 13,
     scrollback: 5000,
-    autoPastePath: false
+    autoPastePath: false,
+    fontFamily: '',
+    lineHeight: 1.4,
+    letterSpacing: 0
   },
   hotkeys: RECOMMENDED_HOTKEYS,
   appearance: {

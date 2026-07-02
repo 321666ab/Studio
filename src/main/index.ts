@@ -316,6 +316,11 @@ function registerHandlers(): void {
               clipboard.writeText(relative)
               done('copy-relative-path')
             }
+          },
+          { type: 'separator' },
+          {
+            label: '添加到 AI 上下文',
+            click: () => done('add-ai-context')
           }
         ])
         menu.popup({ window: mainWindow ?? undefined, callback: () => resolve(null) })
@@ -336,6 +341,20 @@ function registerHandlers(): void {
       }
     }
   )
+
+  // Terminal link clicks: only plain web URLs may leave the app.
+  ipcMain.handle(IPC.fs.openExternalUrl, async (_e, url: string): Promise<IpcResult<void>> => {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new Error('仅允许打开 http/https 链接')
+      }
+      await shell.openExternal(parsed.toString())
+      return ok(undefined)
+    } catch (err) {
+      return fail(err)
+    }
+  })
 
   // --- Settings ----------------------------------------------------------
   ipcMain.handle(IPC.settings.get, async (): Promise<IpcResult<Settings>> => {

@@ -11,6 +11,7 @@ interface SidebarProps {
   onOpenProject: () => void
   onSelectFile: (entry: DirEntry) => void
   onCopyRelativePath: (relativePath: string) => void
+  onAddToAiContext: (entry: DirEntry) => void
   onCollapse: () => void
   onOpenSettings: () => void
 }
@@ -24,6 +25,7 @@ export function Sidebar({
   onOpenProject,
   onSelectFile,
   onCopyRelativePath,
+  onAddToAiContext,
   onCollapse,
   onOpenSettings
 }: SidebarProps): JSX.Element {
@@ -69,6 +71,7 @@ export function Sidebar({
           selectedPath={selectedPath}
           onSelectFile={onSelectFile}
           onCopyRelativePath={onCopyRelativePath}
+          onAddToAiContext={onAddToAiContext}
         />
       )}
 

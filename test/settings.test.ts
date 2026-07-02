@@ -62,6 +62,33 @@ describe('normalizeSettings', () => {
     expect(result.appearance.colorScheme).toBe('dark')
   })
 
+  it('defaults the tasks workspace to enabled and accepts disabling it', () => {
+    expect(DEFAULT_SETTINGS.ai.tasksEnabled).toBe(true)
+    expect(normalizeSettings({}).ai.tasksEnabled).toBe(true)
+    expect(normalizeSettings({ ai: { tasksEnabled: false } }).ai.tasksEnabled).toBe(false)
+    expect(normalizeSettings({ ai: { tasksEnabled: 'no' } }).ai.tasksEnabled).toBe(true)
+  })
+
+  it('normalizes terminal typography settings', () => {
+    expect(DEFAULT_SETTINGS.terminal.lineHeight).toBe(1.4)
+    expect(DEFAULT_SETTINGS.terminal.letterSpacing).toBe(0)
+    expect(DEFAULT_SETTINGS.terminal.fontFamily).toBe('')
+
+    const result = normalizeSettings({
+      terminal: { fontFamily: 'JetBrains Mono', lineHeight: 1.6, letterSpacing: 1 }
+    })
+    expect(result.terminal.fontFamily).toBe('JetBrains Mono')
+    expect(result.terminal.lineHeight).toBe(1.6)
+    expect(result.terminal.letterSpacing).toBe(1)
+
+    const clamped = normalizeSettings({
+      terminal: { fontFamily: 42, lineHeight: 9, letterSpacing: -4 }
+    })
+    expect(clamped.terminal.fontFamily).toBe('')
+    expect(clamped.terminal.lineHeight).toBe(2)
+    expect(clamped.terminal.letterSpacing).toBe(0)
+  })
+
   it('normalizes hotkeys and disables invalid or duplicate accelerators', () => {
     const result = normalizeSettings({
       hotkeys: [
@@ -137,6 +164,13 @@ describe('mergeSettings', () => {
     expect(merged.terminal.autoPastePath).toBe(true)
     expect(merged.hotkeys[0].enabled).toBe(true)
     expect(merged.hotkeys[1]).toEqual(DEFAULT_SETTINGS.hotkeys[1])
+  })
+
+  it('merges the tasksEnabled toggle without touching other ai fields', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, { ai: { tasksEnabled: false } })
+    expect(merged.ai.tasksEnabled).toBe(false)
+    expect(merged.ai.defaultProvider).toBe(DEFAULT_SETTINGS.ai.defaultProvider)
+    expect(merged.ai.bypassPermissions).toBe(DEFAULT_SETTINGS.ai.bypassPermissions)
   })
 
   it('clamps patched values', () => {

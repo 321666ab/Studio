@@ -9,6 +9,7 @@ interface TreeNodeProps {
   selectedPath: string | null
   onSelectFile: (entry: DirEntry) => void
   onCopyRelativePath: (relativePath: string) => void
+  onAddToAiContext: (entry: DirEntry) => void
 }
 
 /**
@@ -20,7 +21,8 @@ function TreeNode({
   depth,
   selectedPath,
   onSelectFile,
-  onCopyRelativePath
+  onCopyRelativePath,
+  onAddToAiContext
 }: TreeNodeProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState<DirEntry[] | null>(null)
@@ -59,6 +61,7 @@ function TreeNode({
           event.preventDefault()
           void api.showPathContextMenu(entry.path).then((result) => {
             if (result?.action === 'copy-relative-path') onCopyRelativePath(result.relativePath)
+            if (result?.action === 'add-ai-context') onAddToAiContext(entry)
           })
         }}
         title={entry.name}
@@ -108,6 +111,7 @@ function TreeNode({
               selectedPath={selectedPath}
               onSelectFile={onSelectFile}
               onCopyRelativePath={onCopyRelativePath}
+              onAddToAiContext={onAddToAiContext}
             />
           ))}
           {children?.length === 0 && (
@@ -129,13 +133,15 @@ interface FileTreeProps {
   selectedPath: string | null
   onSelectFile: (entry: DirEntry) => void
   onCopyRelativePath: (relativePath: string) => void
+  onAddToAiContext: (entry: DirEntry) => void
 }
 
 export function FileTree({
   roots,
   selectedPath,
   onSelectFile,
-  onCopyRelativePath
+  onCopyRelativePath,
+  onAddToAiContext
 }: FileTreeProps): JSX.Element {
   return (
     <div className="tree">
@@ -147,6 +153,7 @@ export function FileTree({
           selectedPath={selectedPath}
           onSelectFile={onSelectFile}
           onCopyRelativePath={onCopyRelativePath}
+          onAddToAiContext={onAddToAiContext}
         />
       ))}
     </div>

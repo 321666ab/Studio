@@ -11,6 +11,7 @@ import type {
 } from '../shared/types'
 import { matchesHotkeyPress } from '../shared/hotkeys'
 import { api } from './lib/api'
+import { baseName } from './lib/fileKind'
 import { usePanels } from './hooks/usePanels'
 import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
@@ -49,6 +50,7 @@ export function App(): JSX.Element {
   const [systemColorScheme, setSystemColorScheme] = useState<ResolvedColorScheme>('light')
   const [agentAvailability, setAgentAvailability] = useState<AgentAvailability[]>([])
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>([])
+  const [aiContextPaths, setAiContextPaths] = useState<string[]>([])
   const rightPanelRef = useRef<RightPanelHandle | null>(null)
 
   const loadRoots = useCallback(async (proj: ProjectInfo) => {
@@ -56,6 +58,7 @@ export function App(): JSX.Element {
     setTreeError(null)
     setSelected(null)
     setOpenRequest(null)
+    setAiContextPaths([])
     try {
       setRoots(await api.readDir(proj.root))
     } catch (e) {
@@ -143,7 +146,33 @@ export function App(): JSX.Element {
   const selectFile = useCallback((file: DirEntry) => {
     setSelected(file)
     setOpenRequest({ file, nonce: Date.now() })
+    // Seed the AI context with the first opened document for a zero-setup start.
+    setAiContextPaths((current) => (current.length === 0 ? [file.path] : current))
   }, [])
+
+  const addToAiContext = useCallback((entry: DirEntry) => {
+    setAiContextPaths((current) =>
+      current.includes(entry.path) ? current : [...current, entry.path]
+    )
+  }, [])
+
+  const removeFromAiContext = useCallback((targetPath: string) => {
+    setAiContextPaths((current) => current.filter((item) => item !== targetPath))
+  }, [])
+
+  const openAgentPath = useCallback(
+    (relativePath: string) => {
+      if (!project) return
+      const absolute = `${project.root.replace(/\/$/, '')}/${relativePath.replace(/^\//, '')}`
+      selectFile({
+        name: baseName(relativePath),
+        path: absolute,
+        isDirectory: false,
+        isSymbolicLink: false
+      })
+    },
+    [project, selectFile]
+  )
 
   const handleCopyRelativePath = useCallback(
     (relativePath: string) => {
@@ -179,7 +208,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (settingsOpen) return
-      if (e.metaKey && (e.key === 'b' || e.key === 'B')) {
+      // Match by physical key too: on macOS Option+B yields key '∫', which
+      // would otherwise break ⌘⌥B while Option is held.
+      if (e.metaKey && (e.key === 'b' || e.key === 'B' || e.code === 'KeyB')) {
         e.preventDefault()
         e.stopImmediatePropagation()
         if (e.altKey) panels.toggleRight()
@@ -276,6 +307,7 @@ export function App(): JSX.Element {
             onOpenProject={openProject}
             onSelectFile={selectFile}
             onCopyRelativePath={handleCopyRelativePath}
+            onAddToAiContext={addToAiContext}
             onCollapse={panels.toggleLeft}
             onOpenSettings={() => setSettingsOpen(true)}
           />
@@ -313,6 +345,11 @@ export function App(): JSX.Element {
             ref={rightPanelRef}
             project={project}
             settings={settings}
+            colorScheme={resolvedColorScheme}
+            availability={agentAvailability}
+            contextPaths={aiContextPaths}
+            onRemoveContextPath={removeFromAiContext}
+            onOpenDocumentPath={openAgentPath}
             onSessionsChange={setTerminalSessions}
             onCollapse={panels.toggleRight}
           />

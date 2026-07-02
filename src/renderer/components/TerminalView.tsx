@@ -1,7 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import type { PtyAgent } from '../../shared/types'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
+import type { PtyAgent, ResolvedColorScheme } from '../../shared/types'
+import { api } from '../lib/api'
 import '@xterm/xterm/css/xterm.css'
 
 export type TerminalTaskStatus = 'starting' | 'idle' | 'active' | 'exited' | 'error'
@@ -13,8 +17,62 @@ interface TerminalViewProps {
   active: boolean
   fontSize: number
   scrollback: number
+  fontFamily: string
+  lineHeight: number
+  letterSpacing: number
+  colorScheme: ResolvedColorScheme
   onFocus: () => void
   onStatusChange: (status: TerminalTaskStatus) => void
+}
+
+const DEFAULT_FONT_STACK = "'SF Mono', ui-monospace, Menlo, monospace"
+
+const LIGHT_THEME: ITheme = {
+  background: '#fbfbfc',
+  foreground: '#252529',
+  cursor: '#0a5fdc',
+  cursorAccent: '#ffffff',
+  selectionBackground: 'rgba(10,95,220,0.18)',
+  black: '#1f2328',
+  red: '#cf222e',
+  green: '#116329',
+  yellow: '#9a6700',
+  blue: '#0969da',
+  magenta: '#8250df',
+  cyan: '#1b7c83',
+  white: '#6e7781',
+  brightBlack: '#57606a',
+  brightRed: '#a40e26',
+  brightGreen: '#1a7f37',
+  brightYellow: '#9a6700',
+  brightBlue: '#218bff',
+  brightMagenta: '#8250df',
+  brightCyan: '#3192aa',
+  brightWhite: '#24292f'
+}
+
+const DARK_THEME: ITheme = {
+  background: '#17181c',
+  foreground: '#e6e6ea',
+  cursor: '#58a6ff',
+  cursorAccent: '#17181c',
+  selectionBackground: 'rgba(88,166,255,0.30)',
+  black: '#3b3f46',
+  red: '#ff7b72',
+  green: '#3fb950',
+  yellow: '#d29922',
+  blue: '#58a6ff',
+  magenta: '#bc8cff',
+  cyan: '#39c5cf',
+  white: '#b1bac4',
+  brightBlack: '#8b949e',
+  brightRed: '#ffa198',
+  brightGreen: '#56d364',
+  brightYellow: '#e3b341',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d2a8ff',
+  brightCyan: '#56d4dd',
+  brightWhite: '#f0f6fc'
 }
 
 export interface TerminalViewHandle {
@@ -28,6 +86,10 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   active,
   fontSize,
   scrollback,
+  fontFamily,
+  lineHeight,
+  letterSpacing,
+  colorScheme,
   onFocus,
   onStatusChange
 }: TerminalViewProps, ref): JSX.Element {
@@ -72,38 +134,35 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
     }
 
     const term = new Terminal({
-      fontFamily: "'SF Mono', ui-monospace, Menlo, monospace",
+      // Proposed APIs are needed by the Unicode 11 addon for CJK/emoji widths.
+      allowProposedApi: true,
+      fontFamily: fontFamily.trim() || DEFAULT_FONT_STACK,
       fontSize,
-      lineHeight: 1.25,
+      lineHeight,
+      letterSpacing,
       scrollback,
       cursorBlink: true,
-      theme: {
-        background: '#fbfbfc',
-        foreground: '#252529',
-        cursor: '#0a5fdc',
-        cursorAccent: '#ffffff',
-        selectionBackground: 'rgba(10,95,220,0.18)',
-        black: '#1f2328',
-        red: '#cf222e',
-        green: '#116329',
-        yellow: '#9a6700',
-        blue: '#0969da',
-        magenta: '#8250df',
-        cyan: '#1b7c83',
-        white: '#6e7781',
-        brightBlack: '#8c959f',
-        brightRed: '#a40e26',
-        brightGreen: '#1a7f37',
-        brightYellow: '#bf8700',
-        brightBlue: '#218bff',
-        brightMagenta: '#a475f9',
-        brightCyan: '#3192aa',
-        brightWhite: '#24292f'
-      }
+      minimumContrastRatio: 4.5,
+      theme: colorScheme === 'dark' ? DARK_THEME : LIGHT_THEME
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    term.loadAddon(new Unicode11Addon())
+    term.unicode.activeVersion = '11'
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        event.preventDefault()
+        void api.openExternalUrl(uri).catch(() => undefined)
+      })
+    )
     term.open(host)
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose())
+      term.loadAddon(webgl)
+    } catch {
+      // GPU rendering is a progressive enhancement; DOM renderer remains.
+    }
     termRef.current = term
     fitRef.current = fit
 
@@ -145,6 +204,10 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
     if (!term) return
     term.options.fontSize = fontSize
     term.options.scrollback = scrollback
+    term.options.fontFamily = fontFamily.trim() || DEFAULT_FONT_STACK
+    term.options.lineHeight = lineHeight
+    term.options.letterSpacing = letterSpacing
+    term.options.theme = colorScheme === 'dark' ? DARK_THEME : LIGHT_THEME
     requestAnimationFrame(() => {
       try {
         fit?.fit()
@@ -152,7 +215,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         // The pane may be hidden while settings change.
       }
     })
-  }, [fontSize, scrollback])
+  }, [colorScheme, fontFamily, fontSize, letterSpacing, lineHeight, scrollback])
 
   useEffect(() => {
     const term = termRef.current

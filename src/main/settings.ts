@@ -34,7 +34,8 @@ export const DEFAULT_SETTINGS: Settings = {
     claudeModel: '',
     codexModel: '',
     bypassPermissions: true,
-    taskTimeoutMs: 10 * 60 * 1000
+    taskTimeoutMs: 10 * 60 * 1000,
+    tasksEnabled: true
   },
   notifications: {
     notifyOnTaskComplete: true,
@@ -44,7 +45,10 @@ export const DEFAULT_SETTINGS: Settings = {
   terminal: {
     fontSize: 13,
     scrollback: 5000,
-    autoPastePath: false
+    autoPastePath: false,
+    fontFamily: '',
+    lineHeight: 1.4,
+    letterSpacing: 0
   },
   hotkeys: RECOMMENDED_HOTKEYS,
   appearance: {
@@ -123,7 +127,8 @@ export function normalizeSettings(input: unknown): Settings {
       claudeModel: asShortString(ai.claudeModel, d.ai.claudeModel),
       codexModel: asShortString(ai.codexModel, d.ai.codexModel),
       bypassPermissions: asBoolean(ai.bypassPermissions, d.ai.bypassPermissions),
-      taskTimeoutMs: clampNumber(ai.taskTimeoutMs, d.ai.taskTimeoutMs, 10_000, 60 * 60 * 1000)
+      taskTimeoutMs: clampNumber(ai.taskTimeoutMs, d.ai.taskTimeoutMs, 10_000, 60 * 60 * 1000),
+      tasksEnabled: asBoolean(ai.tasksEnabled, d.ai.tasksEnabled)
     },
     notifications: {
       notifyOnTaskComplete: asBoolean(
@@ -139,7 +144,10 @@ export function normalizeSettings(input: unknown): Settings {
     terminal: {
       fontSize: clampNumber(terminal.fontSize, d.terminal.fontSize, 9, 24),
       scrollback: clampNumber(terminal.scrollback, d.terminal.scrollback, 200, 100_000),
-      autoPastePath: asBoolean(terminal.autoPastePath, d.terminal.autoPastePath)
+      autoPastePath: asBoolean(terminal.autoPastePath, d.terminal.autoPastePath),
+      fontFamily: asShortString(terminal.fontFamily, d.terminal.fontFamily),
+      lineHeight: clampNumber(terminal.lineHeight, d.terminal.lineHeight, 1, 2),
+      letterSpacing: clampNumber(terminal.letterSpacing, d.terminal.letterSpacing, 0, 3)
     },
     hotkeys: normalizeHotkeys(hotkeys),
     appearance: {

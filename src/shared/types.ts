@@ -41,7 +41,11 @@ export interface QuickLookPreview {
   html: string
 }
 
-export type PathContextMenuAction = 'open-in-finder' | 'copy-file' | 'copy-relative-path'
+export type PathContextMenuAction =
+  | 'open-in-finder'
+  | 'copy-file'
+  | 'copy-relative-path'
+  | 'add-ai-context'
 
 export interface PathContextMenuResult {
   action: PathContextMenuAction
@@ -101,6 +105,8 @@ export interface AiSettings {
   bypassPermissions: boolean
   /** Hard ceiling on a single task's wall-clock runtime, in milliseconds. */
   taskTimeoutMs: number
+  /** Expose the structured Tasks workspace in the right panel. */
+  tasksEnabled: boolean
 }
 
 export interface NotificationSettings {
@@ -118,6 +124,12 @@ export interface TerminalSettings {
   scrollback: number
   /** Paste copied relative paths into the active terminal input stream. */
   autoPastePath: boolean
+  /** Empty string falls back to the built-in monospace stack. */
+  fontFamily: string
+  /** Line height multiplier applied to terminal rows. */
+  lineHeight: number
+  /** Additional letter spacing in pixels. */
+  letterSpacing: number
 }
 
 export type HotkeyAction =
@@ -359,7 +371,8 @@ export const IPC = {
     openPath: 'fs:openPath',
     quickLook: 'fs:quickLook',
     showPathContextMenu: 'fs:showPathContextMenu',
-    estimateContext: 'fs:estimateContext'
+    estimateContext: 'fs:estimateContext',
+    openExternalUrl: 'fs:openExternalUrl'
   },
   pty: {
     create: 'pty:create',
@@ -411,6 +424,7 @@ export interface StudioApi {
     targetPath: string
   ) => Promise<IpcResult<PathContextMenuResult | null>>
   estimateContext: (paths: string[]) => Promise<IpcResult<AgentContextEstimate>>
+  openExternalUrl: (url: string) => Promise<IpcResult<void>>
   pty: {
     create: (options: PtyCreateOptions) => Promise<IpcResult<void>>
     input: (terminalId: string, data: string) => void

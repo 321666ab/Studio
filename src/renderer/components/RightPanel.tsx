@@ -11,18 +11,27 @@ import {
   Bot,
   Code2,
   Columns2,
+  ListChecks,
   PanelRightClose,
   Plus,
   TerminalSquare,
   Trash2,
   X
 } from 'lucide-react'
-import type { ProjectInfo, PtyAgent, Settings, TerminalSessionInfo } from '../../shared/types'
+import type {
+  AgentAvailability,
+  ProjectInfo,
+  PtyAgent,
+  ResolvedColorScheme,
+  Settings,
+  TerminalSessionInfo
+} from '../../shared/types'
 import {
   TerminalView,
   type TerminalTaskStatus,
   type TerminalViewHandle
 } from './TerminalView'
+import { TaskWorkspace } from './TaskWorkspace'
 
 interface TerminalPane {
   id: string
@@ -45,9 +54,17 @@ export interface RightPanelHandle {
 interface RightPanelProps {
   project: ProjectInfo | null
   settings: Settings
+  colorScheme: ResolvedColorScheme
+  availability: AgentAvailability[]
+  contextPaths: string[]
+  onRemoveContextPath: (path: string) => void
+  onOpenDocumentPath: (relativePath: string) => void
   onSessionsChange: (sessions: TerminalSessionInfo[]) => void
   onCollapse: () => void
 }
+
+type RightPanelMode = 'tasks' | 'terminal'
+const MODE_STORAGE_KEY = 'studio.rightPanelMode.v1'
 
 const STATUS_LABEL: Record<TerminalTaskStatus, string> = {
   starting: '启动中',
@@ -60,9 +77,23 @@ const SESSION_HISTORY_KEY = 'studio.terminalSessions.v1'
 const SESSION_HISTORY_LIMIT = 30
 
 export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function RightPanel(
-  { project, settings, onSessionsChange, onCollapse },
+  {
+    project,
+    settings,
+    colorScheme,
+    availability,
+    contextPaths,
+    onRemoveContextPath,
+    onOpenDocumentPath,
+    onSessionsChange,
+    onCollapse
+  },
   ref
 ): JSX.Element {
+  const tasksEnabled = settings.ai.tasksEnabled
+  const [mode, setMode] = useState<RightPanelMode>(() =>
+    localStorage.getItem(MODE_STORAGE_KEY) === 'tasks' ? 'tasks' : 'terminal'
+  )
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [sessionHistory, setSessionHistory] = useState<TerminalSessionInfo[]>(loadSessionHistory)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -73,6 +104,22 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
   const [message, setMessage] = useState<string | null>(null)
   const terminalNumber = useRef(0)
   const terminalRefs = useRef<Map<string, TerminalViewHandle>>(new Map())
+
+  const showTasks = tasksEnabled && mode === 'tasks'
+
+  const changeMode = useCallback((next: RightPanelMode): void => {
+    setMode(next)
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, next)
+    } catch {
+      // Non-critical persistence failure.
+    }
+  }, [])
+
+  // Fall back to the terminal when tasks get disabled in settings.
+  useEffect(() => {
+    if (!tasksEnabled && mode === 'tasks') setMode('terminal')
+  }, [mode, tasksEnabled])
 
   useEffect(() => {
     setTabs([])
@@ -153,6 +200,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
 
   const focusOrOpenTerminal = useCallback(
     (agent: PtyAgent): boolean => {
+      changeMode('terminal')
       const existing = [...tabs].reverse().find((tab) => tab.agent === agent)
       if (existing) {
         const paneId = existing.panes[0]?.id ?? null
@@ -166,11 +214,12 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
       openTerminal(agent)
       return true
     },
-    [focusPaneSoon, openTerminal, tabs]
+    [changeMode, focusPaneSoon, openTerminal, tabs]
   )
 
   const loadTerminalSession = useCallback(
     (sessionId: string): boolean => {
+      changeMode('terminal')
       const existing = tabs.find((tab) => tab.id === sessionId)
       if (existing) {
         const paneId = existing.panes[0]?.id ?? null
@@ -189,7 +238,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
       openTerminal(historical.agent, historical.label)
       return true
     },
-    [focusPaneSoon, openTerminal, sessionHistory, tabs]
+    [changeMode, focusPaneSoon, openTerminal, sessionHistory, tabs]
   )
 
   const pasteToActiveTerminal = useCallback(
@@ -199,13 +248,14 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         setMessage('没有活跃终端，已仅复制到剪贴板。')
         return false
       }
+      changeMode('terminal')
       window.studio.pty.input(paneId, text)
       setActivePaneId(paneId)
       setMessage(null)
       focusPaneSoon(paneId)
       return true
     },
-    [focusPaneSoon, resolveActivePaneId]
+    [changeMode, focusPaneSoon, resolveActivePaneId]
   )
 
   useImperativeHandle(
@@ -344,12 +394,35 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
 
   return (
     <>
-      <div className="right-panel-head terminal-only">
-        <div className="right-panel-title">
-          <TerminalSquare size={14} strokeWidth={1.9} />
-          <span>终端</span>
-        </div>
-        <div className="right-tabs">
+      <div className={`right-panel-head${showTasks ? '' : ' terminal-only'}`}>
+        {tasksEnabled ? (
+          <div className="right-mode-switch" role="tablist" aria-label="右侧栏模式">
+            <button
+              role="tab"
+              aria-selected={showTasks}
+              className={showTasks ? 'active' : ''}
+              onClick={() => changeMode('tasks')}
+            >
+              <ListChecks size={13} strokeWidth={1.9} />
+              任务
+            </button>
+            <button
+              role="tab"
+              aria-selected={!showTasks}
+              className={!showTasks ? 'active' : ''}
+              onClick={() => changeMode('terminal')}
+            >
+              <TerminalSquare size={13} strokeWidth={1.9} />
+              终端
+            </button>
+          </div>
+        ) : (
+          <div className="right-panel-title">
+            <TerminalSquare size={14} strokeWidth={1.9} />
+            <span>终端</span>
+          </div>
+        )}
+        <div className="right-tabs" style={showTasks ? { display: 'none' } : undefined}>
           {tabs.map((tab) => {
             const status = aggregateStatus(tab.panes)
             const AgentIcon = tab.agent === 'claude' ? Bot : Code2
@@ -425,32 +498,36 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         </div>
 
         <div className="right-panel-actions">
-          <button
-            className={`icon-btn${activeTab?.panes.length === 2 ? ' active' : ''}`}
-            title={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
-            aria-label={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
-            disabled={!activeTab}
-            onClick={toggleSplit}
-          >
-            <Columns2 size={15} strokeWidth={1.8} />
-          </button>
-          <button
-            className="icon-btn"
-            title="关闭已退出或错误的终端"
-            aria-label="关闭已退出或错误的终端"
-            disabled={!tabs.some((tab) => ['exited', 'error'].includes(aggregateStatus(tab.panes)))}
-            onClick={closeInactiveSessions}
-          >
-            <Trash2 size={15} strokeWidth={1.8} />
-          </button>
-          <button
-            className={`icon-btn${pickerOpen ? ' active' : ''}`}
-            title="新建 Agent 终端"
-            aria-label="新建 Agent 终端"
-            onClick={() => setPickerOpen((open) => !open)}
-          >
-            <Plus size={15} strokeWidth={2} />
-          </button>
+          {!showTasks && (
+            <>
+              <button
+                className={`icon-btn${activeTab?.panes.length === 2 ? ' active' : ''}`}
+                title={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
+                aria-label={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
+                disabled={!activeTab}
+                onClick={toggleSplit}
+              >
+                <Columns2 size={15} strokeWidth={1.8} />
+              </button>
+              <button
+                className="icon-btn"
+                title="关闭已退出或错误的终端"
+                aria-label="关闭已退出或错误的终端"
+                disabled={!tabs.some((tab) => ['exited', 'error'].includes(aggregateStatus(tab.panes)))}
+                onClick={closeInactiveSessions}
+              >
+                <Trash2 size={15} strokeWidth={1.8} />
+              </button>
+              <button
+                className={`icon-btn${pickerOpen ? ' active' : ''}`}
+                title="新建 Agent 终端"
+                aria-label="新建 Agent 终端"
+                onClick={() => setPickerOpen((open) => !open)}
+              >
+                <Plus size={15} strokeWidth={2} />
+              </button>
+            </>
+          )}
           <button
             className="icon-btn"
             title="收起右侧栏 (⌘⌥B)"
@@ -462,15 +539,25 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         </div>
       </div>
 
-      {pickerOpen && <AgentPicker onChoose={openTerminal} />}
+      {pickerOpen && !showTasks && <AgentPicker onChoose={openTerminal} />}
 
       <div className="tab-body">
-        {!activeId && <PanelChooser onChoose={openTerminal} message={message} />}
+        {showTasks && (
+          <TaskWorkspace
+            projectRoot={project?.root ?? null}
+            settings={settings}
+            availability={availability}
+            contextPaths={contextPaths}
+            onRemoveContextPath={onRemoveContextPath}
+            onOpenDocumentPath={onOpenDocumentPath}
+          />
+        )}
+        {!showTasks && !activeId && <PanelChooser onChoose={openTerminal} message={message} />}
         {tabs.map((tab) => (
           <div
             key={tab.id}
             className={`right-tab-content terminal-layout${tab.panes.length === 2 ? ' split' : ''}`}
-            style={{ display: activeId === tab.id ? 'flex' : 'none' }}
+            style={{ display: !showTasks && activeId === tab.id ? 'flex' : 'none' }}
           >
             {project ? (
               tab.panes.map((pane, index) => (
@@ -507,6 +594,10 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
                     active={activeId === tab.id && activePaneId === pane.id}
                     fontSize={settings.terminal.fontSize}
                     scrollback={settings.terminal.scrollback}
+                    fontFamily={settings.terminal.fontFamily}
+                    lineHeight={settings.terminal.lineHeight}
+                    letterSpacing={settings.terminal.letterSpacing}
+                    colorScheme={colorScheme}
                     onFocus={() => setActivePaneId(pane.id)}
                     onStatusChange={(status) => updatePaneStatus(tab.id, pane.id, status)}
                   />

@@ -271,6 +271,14 @@ export function SettingsPanel({
                         })}
                       </div>
                     </SettingsGroup>
+                    <SettingsGroup title="任务工作台">
+                      <ToggleRow
+                        label="启用任务工作台"
+                        detail="在右侧栏提供结构化 AI 任务（隔离工作区、diff 审阅、选择性应用）。关闭后右侧栏只保留交互式终端。"
+                        checked={settings.ai.tasksEnabled}
+                        onChange={(tasksEnabled) => onChange({ ai: { tasksEnabled } })}
+                      />
+                    </SettingsGroup>
                     <SettingsGroup title="执行方式">
                       <label className="setting-text-row">
                         <span>
@@ -373,6 +381,37 @@ export function SettingsPanel({
                       suffix=" px"
                       onChange={(fontSize) => onChange({ terminal: { fontSize } })}
                     />
+                    <SliderRow
+                      label="行距"
+                      value={settings.terminal.lineHeight}
+                      min={1}
+                      max={2}
+                      step={0.05}
+                      suffix=" 倍"
+                      onChange={(lineHeight) => onChange({ terminal: { lineHeight } })}
+                    />
+                    <SliderRow
+                      label="字距"
+                      value={settings.terminal.letterSpacing}
+                      min={0}
+                      max={3}
+                      step={0.5}
+                      suffix=" px"
+                      onChange={(letterSpacing) => onChange({ terminal: { letterSpacing } })}
+                    />
+                    <label className="setting-text-row">
+                      <span>
+                        <strong>字体</strong>
+                        <small>留空使用内置等宽字体（SF Mono / Menlo）。</small>
+                      </span>
+                      <input
+                        value={settings.terminal.fontFamily}
+                        placeholder="默认"
+                        onChange={(event) =>
+                          onChange({ terminal: { fontFamily: event.currentTarget.value } })
+                        }
+                      />
+                    </label>
                     <SliderRow
                       label="回滚行数"
                       value={settings.terminal.scrollback}
@@ -566,6 +605,15 @@ export function SettingsPanel({
                         onChange={(rightWidth) => onChange({ layout: { rightWidth } })}
                       />
                     </SettingsGroup>
+                    <SettingsGroup title="关于">
+                      <div className="about-row">
+                        <span className="about-badge">Built &amp; reviewed with Claude Fable 5</span>
+                        <small>
+                          本项目由 Claude Fable 5（Anthropic）协助开发与审查。此为项目自述标注，非
+                          Anthropic 官方认证。
+                        </small>
+                      </div>
+                    </SettingsGroup>
                   </>
                 )}
               </>
@@ -716,7 +764,11 @@ function SliderRow({
       <span className="setting-label">
         <span>{label}</span>
         <output>
-          {suffix === '%' ? Math.round(value * 100) : Math.round(value)}
+          {suffix === '%'
+            ? Math.round(value * 100)
+            : Number.isInteger(step)
+              ? Math.round(value)
+              : Number(value.toFixed(2))}
           {suffix}
         </output>
       </span>
