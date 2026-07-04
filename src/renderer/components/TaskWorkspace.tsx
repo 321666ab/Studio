@@ -7,6 +7,7 @@ import {
   FolderOpen,
   FileText,
   History,
+  Paperclip,
   Play,
   RefreshCw,
   RotateCcw,
@@ -604,8 +605,17 @@ export function TaskWorkspace({
           </details>
 
           <div className="task-compose-actions">
-            <span>⌘↵ 运行</span>
-            <button className="text-btn primary" disabled={!canStart || busy} onClick={startTask}>
+            <span className="task-attachment-pill" title={contextSummary}>
+              <Paperclip size={12} strokeWidth={1.9} />
+              {contextPaths.length}
+            </span>
+            <button
+              className="text-btn primary task-run-button"
+              title="运行任务 (⌘↵)"
+              aria-label="运行任务"
+              disabled={!canStart || busy}
+              onClick={startTask}
+            >
               <Play size={13} fill="currentColor" />
               运行任务
             </button>
@@ -759,16 +769,22 @@ export function TaskWorkspace({
                   className={`task-history-item${item.taskId === task?.taskId ? ' selected' : ''}`}
                   onClick={() => showHistoryTask(item)}
                 >
-                  <span className={`task-state ${item.status}`}>
+                  <span className={`task-state task-history-state ${item.status}`}>
                     <i />
                   </span>
-                  <span className="task-history-prompt" title={item.prompt || item.skill?.name}>
-                    {item.skill?.name ?? ''}
-                    {item.skill && item.prompt ? ' · ' : ''}
-                    {item.prompt || (item.skill ? '' : '（无提示词）')}
-                  </span>
-                  <span className="task-history-time">
-                    {new Date(item.createdAt).toLocaleTimeString()}
+                  <span className="task-history-main">
+                    <span className="task-history-row">
+                      <span
+                        className="task-history-title"
+                        title={formatTaskHistoryTitle(item)}
+                      >
+                        {formatTaskHistoryTitle(item)}
+                      </span>
+                      <span className="task-history-time">
+                        {new Date(item.createdAt).toLocaleTimeString()}
+                      </span>
+                    </span>
+                    <span className="task-history-summary">{formatTaskHistorySummary(item)}</span>
                   </span>
                 </button>
               ))}
@@ -798,6 +814,18 @@ function formatDuration(task: AgentTask): string | null {
   const seconds = Math.round((task.endedAt - task.startedAt) / 1000)
   if (seconds < 60) return `${seconds}s`
   return `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ''}`
+}
+
+function formatTaskHistoryTitle(task: AgentTask): string {
+  if (task.skill?.name && task.prompt) return `${task.skill.name} · ${task.prompt}`
+  return task.prompt || task.skill?.name || '（无提示词）'
+}
+
+function formatTaskHistorySummary(task: AgentTask): string {
+  const provider = task.provider === 'claude' ? 'Claude' : 'Codex'
+  const changeSummary =
+    task.changedFiles.length > 0 ? ` · ${task.changedFiles.length} 个文件变更待审` : ''
+  return `${provider} · ${TASK_STATUS[task.status]}${changeSummary}`
 }
 
 function appendUniqueOutput(

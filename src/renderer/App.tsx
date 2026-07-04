@@ -1,5 +1,5 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react'
-import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type {
   AgentAvailability,
   DirEntry,
@@ -280,17 +280,31 @@ export function App(): JSX.Element {
       data-color-source={appearance.colorScheme}
     >
       <div className="titlebar">
-        {panels.leftCollapsed && (
-          <button className="icon-btn" title="显示文件栏 (⌘B)" onClick={panels.toggleLeft}>
+        <button
+          className={`icon-btn${panels.leftCollapsed ? '' : ' active'}`}
+          title={panels.leftCollapsed ? '显示文件栏 (⌘B)' : '收起文件栏 (⌘B)'}
+          aria-pressed={!panels.leftCollapsed}
+          onClick={panels.toggleLeft}
+        >
+          {panels.leftCollapsed ? (
             <PanelLeftOpen size={15} strokeWidth={1.8} />
-          </button>
-        )}
+          ) : (
+            <PanelLeftClose size={15} strokeWidth={1.8} />
+          )}
+        </button>
         <span className="spacer" />
-        {panels.rightCollapsed && (
-          <button className="icon-btn" title="显示右侧栏 (⌘⌥B)" onClick={panels.toggleRight}>
+        <button
+          className={`icon-btn${panels.rightCollapsed ? '' : ' active'}`}
+          title={panels.rightCollapsed ? '显示右侧栏 (⌘⌥B)' : '收起右侧栏 (⌘⌥B)'}
+          aria-pressed={!panels.rightCollapsed}
+          onClick={panels.toggleRight}
+        >
+          {panels.rightCollapsed ? (
             <PanelRightOpen size={15} strokeWidth={1.8} />
-          </button>
-        )}
+          ) : (
+            <PanelRightClose size={15} strokeWidth={1.8} />
+          )}
+        </button>
       </div>
 
       <div className="workspace">

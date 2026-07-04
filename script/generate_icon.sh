@@ -1,32 +1,27 @@
 #!/bin/bash
-# Regenerate all app icon assets from the original artwork + liquid glass template.
+# Regenerate all app icon assets directly from the original artwork.
 #
 #   script/generate_icon.sh
 #
-# Inputs:  build/icon-artwork.png (original logo art), build/icon.svg.tmpl
-# Outputs: build/icon.svg, build/icon-source.png, build/icon-cropped.png,
+# Inputs:  build/icon-artwork.png (original logo art — the robot-cat squircle)
+# Outputs: build/icon-source.png, build/icon-cropped.png,
 #          build/AppIcon.iconset/*, build/icon.icns
-# Requires network on first run for `npx @resvg/resvg-js-cli` (not a project dependency).
+#
+# The artwork is used as-is (rounded corners already baked in); no liquid-glass
+# compositing. build/icon.svg.tmpl is kept only for reference.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 ART=build/icon-artwork.png
-TMPL=build/icon.svg.tmpl
-SVG=build/icon.svg
 SOURCE=build/icon-source.png
 CROPPED=build/icon-cropped.png
 ICONSET=build/AppIcon.iconset
 
 [[ -f "$ART" ]] || { echo "missing $ART" >&2; exit 1; }
-[[ -f "$TMPL" ]] || { echo "missing $TMPL" >&2; exit 1; }
 
-echo "==> inject artwork into $SVG"
-ART_B64=$(base64 -i "$ART" | tr -d '\n')
-ART_B64="$ART_B64" perl -pe 's/__ARTWORK_B64__/$ENV{ART_B64}/' "$TMPL" > "$SVG"
-
-echo "==> render $SVG -> $SOURCE (1024px)"
-npx --yes @resvg/resvg-js-cli --fit-width 1024 "$SVG" "$SOURCE"
+echo "==> render $ART -> $SOURCE (1024px)"
+sips -z 1024 1024 "$ART" --out "$SOURCE" >/dev/null
 
 # The artwork already contains its margins; cropped equals source.
 cp "$SOURCE" "$CROPPED"
@@ -43,4 +38,4 @@ done
 echo "==> iconutil -> build/icon.icns"
 iconutil -c icns "$ICONSET" -o build/icon.icns
 
-echo "done: $SVG, $SOURCE, $CROPPED, $ICONSET, build/icon.icns"
+echo "done: $SOURCE, $CROPPED, $ICONSET, build/icon.icns"
