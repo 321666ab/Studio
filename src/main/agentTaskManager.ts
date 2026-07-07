@@ -15,6 +15,7 @@ import type {
   ChangedFile
 } from '../shared/types.js'
 import { buildAgentCommand } from './agentCommand.js'
+import type { ExtractedDoc } from './docExtract.js'
 import {
   prepareWorkspace,
   snapshotTree,
@@ -128,10 +129,17 @@ export class AgentTaskManager {
           name: skill.name
         }
       }
-      task.prompt = buildTaskPrompt(userPrompt, task.skill, contextPaths)
       executable = await this.options.getExecutable(provider)
       entry.workspace = await prepareWorkspace(root, contextPaths)
       task.workspacePath = entry.workspace.path
+      // Built after workspace prep so the prompt can point at extracted text
+      // versions of binary context documents.
+      task.prompt = buildTaskPrompt(
+        userPrompt,
+        task.skill,
+        contextPaths,
+        entry.workspace.extractedDocs
+      )
       if (entry.cancelled) {
         await entry.workspace.cleanup().catch(() => undefined)
         entry.workspace = undefined
@@ -471,7 +479,8 @@ function validTaskId(value: unknown): string {
 export function buildTaskPrompt(
   prompt: string,
   skill?: AgentTask['skill'],
-  contextPaths: string[] = []
+  contextPaths: string[] = [],
+  extractedDocs: ExtractedDoc[] = []
 ): string {
   const parts: string[] = []
   if (skill) parts.push(`${skill.command}${prompt ? ` ${prompt}` : ''}`)
@@ -482,6 +491,13 @@ export function buildTaskPrompt(
     )
   } else {
     parts.push('请在当前项目中完成任务，并尽量减少不必要的文件修改。')
+  }
+  if (extractedDocs.length > 0) {
+    parts.push(
+      '以下二进制文档已提取为纯文本副本。请只阅读文本副本，' +
+        '不要用 Read 工具直接读取原始 PDF/Office 文件（当前 API 端点不支持二进制附件，会导致请求失败）：\n' +
+        extractedDocs.map((doc) => `- ${doc.source} → ${doc.extracted}`).join('\n')
+    )
   }
   parts.push('输出中引用结论来源时，请使用项目相对路径。')
   return parts.join('\n\n')

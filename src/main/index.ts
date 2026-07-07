@@ -9,7 +9,6 @@ import {
   nativeTheme,
   shell
 } from 'electron'
-import { execFile } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { IPC } from '../shared/types.js'
@@ -40,6 +39,7 @@ import {
   readFileText,
   writeMarkdown
 } from './fileService.js'
+import { copyFilesToClipboard } from './clipboardFiles.js'
 import { searchProjectContent } from './contentSearch.js'
 import { ProjectWatcher } from './fsWatcher.js'
 import { PtyManager, registerPtyHandlers } from './pty.js'
@@ -133,17 +133,6 @@ function ok<T>(value: T): IpcResult<T> {
 
 function fail<T>(err: unknown): IpcResult<T> {
   return { ok: false, error: err instanceof Error ? err.message : String(err) }
-}
-
-function copyFileToClipboard(filePath: string): void {
-  if (process.platform !== 'darwin') {
-    clipboard.writeText(filePath)
-    return
-  }
-  const script = 'set the clipboard to (POSIX file (item 1 of argv))'
-  execFile('osascript', ['-e', script, filePath], { timeout: 3000 }, (error) => {
-    if (error) clipboard.writeText(filePath)
-  })
 }
 
 function triggerCustomHotkey(hotkey: Settings['hotkeys'][number]): void {
@@ -334,7 +323,7 @@ function registerHandlers(): void {
           {
             label: '复制文件',
             click: () => {
-              copyFileToClipboard(safe)
+              copyFilesToClipboard([safe])
               done('copy-file')
             }
           },

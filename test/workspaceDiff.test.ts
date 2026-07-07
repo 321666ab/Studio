@@ -142,4 +142,18 @@ describe('buildTaskPrompt', () => {
     expect(prompt).toContain('- docs/a.md')
     expect(prompt).toContain('- docs/b.md')
   })
+
+  it('maps extracted binary documents to their text versions', () => {
+    const prompt = buildTaskPrompt('总结要点', undefined, ['docs/合同.pdf'], [
+      { source: 'docs/合同.pdf', extracted: 'docs/合同.pdf.extracted.txt' }
+    ])
+    expect(prompt).toContain('- docs/合同.pdf → docs/合同.pdf.extracted.txt')
+    expect(prompt).toContain('不要用 Read 工具直接读取原始 PDF/Office 文件')
+  })
+
+  it('omits the extraction section when nothing was extracted', () => {
+    const prompt = buildTaskPrompt('总结要点', undefined, ['docs/a.md'], [])
+    expect(prompt).not.toContain('extracted')
+    expect(prompt).not.toContain('二进制文档')
+  })
 })

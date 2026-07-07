@@ -40,7 +40,11 @@ path or adding a file/directory to the AI context basket. The Tasks view discove
 Claude bundled, user, project, and installed-plugin Skills, shows a 24K-token
 context budget, and records the selected Skill/context with each task. Large
 non-Git projects use a context-scoped temporary workspace instead of failing at
-the full-project copy limit. The preview area displays PNG/JPEG directly and
+the full-project copy limit. Binary context documents (PDF/Word/RTF/ODT) are
+extracted to plain-text `.extracted.txt` siblings inside the isolated workspace
+using macOS-native PDFKit/`textutil`, and the task prompt directs the agent to
+read those instead — required for OpenAI-compatible third-party endpoints
+(e.g. 火山引擎 ARK) that reject Anthropic `document` content blocks. The preview area displays PNG/JPEG directly and
 converts HEIC/HEIF through the macOS `sips` utility into a cached PNG preview.
 
 > **Unsigned build notice.** The local package produced here is **not

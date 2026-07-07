@@ -4,6 +4,7 @@ import path from 'path'
 import os from 'os'
 import { promisify } from 'util'
 import { snapshotFromBuffer, type SnapshotMap } from './workspaceDiff.js'
+import { extractContextDocuments, type ExtractedDoc } from './docExtract.js'
 import { resolveWithinRoot } from './security.js'
 
 const execFileAsync = promisify(execFile)
@@ -52,6 +53,8 @@ export interface PreparedWorkspace {
   sourceRoot: string
   /** Snapshot of the workspace contents at preparation time. */
   baseline: SnapshotMap
+  /** Context documents converted to plain text for API compatibility. */
+  extractedDocs: ExtractedDoc[]
   /** Tear down the workspace (remove worktree or temp dir). */
   cleanup: () => Promise<void>
 }
@@ -178,7 +181,7 @@ export async function prepareWorkspace(
   const realSource = await fs.realpath(sourceRoot)
   const gitInfo = await gitWorkspaceInfo(realSource)
   if (gitInfo && gitInfo.relativeProjectPath === '') {
-    return prepareGitWorktree(realSource, gitInfo)
+    return prepareGitWorktree(realSource, gitInfo, contextPaths)
   }
   const size = await directorySize(realSource)
   if (size > MAX_NONGIT_COPY_BYTES) {
@@ -189,7 +192,7 @@ export async function prepareWorkspace(
       `工作目录超过 ${Math.round(MAX_NONGIT_COPY_BYTES / (1024 * 1024))}MB。请缩小任务范围后再运行`
     )
   }
-  return prepareTempCopy(realSource)
+  return prepareTempCopy(realSource, contextPaths)
 }
 
 async function makeTempDir(prefix: string): Promise<string> {
@@ -200,7 +203,8 @@ async function makeTempDir(prefix: string): Promise<string> {
 
 async function prepareGitWorktree(
   sourceRoot: string,
-  gitInfo: GitWorkspaceInfo
+  gitInfo: GitWorkspaceInfo,
+  contextPaths: string[]
 ): Promise<PreparedWorkspace> {
   const worktreeRoot = await makeTempDir('wt-')
   // Detached worktree at the current HEAD; we then sync the dirty working tree
@@ -215,12 +219,14 @@ async function prepareGitWorktree(
   await fs.mkdir(projectPath, { recursive: true })
   await syncWorkingTree(sourceRoot, projectPath)
 
+  const extractedDocs = await extractContextDocuments(projectPath, contextPaths)
   const baseline = await snapshotTree(projectPath)
   return {
     path: projectPath,
     isGitWorktree: true,
     sourceRoot,
     baseline,
+    extractedDocs,
     cleanup: async () => {
       try {
         await execFileAsync('git', ['worktree', 'remove', '--force', worktreeRoot], {
@@ -275,17 +281,22 @@ async function removeDestinationOnlyEntries(source: string, dest: string): Promi
   }
 }
 
-async function prepareTempCopy(sourceRoot: string): Promise<PreparedWorkspace> {
+async function prepareTempCopy(
+  sourceRoot: string,
+  contextPaths: string[] = []
+): Promise<PreparedWorkspace> {
   const dir = await makeTempDir('copy-')
   try {
     await copyTree(sourceRoot, dir, true)
     await copyClaudeConfiguration(sourceRoot, dir)
+    const extractedDocs = await extractContextDocuments(dir, contextPaths)
     const baseline = await snapshotTree(dir)
     return {
       path: dir,
       isGitWorktree: false,
       sourceRoot,
       baseline,
+      extractedDocs,
       cleanup: async () => {
         await fs.rm(dir, { recursive: true, force: true })
       }
@@ -317,12 +328,14 @@ async function prepareScopedTempCopy(
       copied.add(relative)
     }
     await copyClaudeConfiguration(sourceRoot, dir)
+    const extractedDocs = await extractContextDocuments(dir, contextPaths)
     const baseline = await snapshotTree(dir)
     return {
       path: dir,
       isGitWorktree: false,
       sourceRoot,
       baseline,
+      extractedDocs,
       cleanup: async () => {
         await fs.rm(dir, { recursive: true, force: true })
       }
