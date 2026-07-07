@@ -104,6 +104,7 @@ export function QuickOpen({
         .searchProjectContent(trimmed)
         .then((result) => {
           if (searchSeq.current !== seq) return
+          setError(null)
           setContentResult(result)
           setActiveIndex(0)
         })

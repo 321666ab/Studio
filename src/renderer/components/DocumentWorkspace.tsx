@@ -40,6 +40,9 @@ export function DocumentWorkspace({
   // absent), so the initial empty state never clobbers a saved one.
   const [sessionReady, setSessionReady] = useState(false)
   const restoreNonce = useRef(0)
+  // Set as soon as the user opens a document; a slower async restore must not
+  // overwrite what they are already looking at.
+  const userOpenedRef = useRef(false)
 
   // Restore the previous tab set for this project; drop tabs whose files are
   // gone. The component remounts per project (keyed by root in App).
@@ -68,6 +71,10 @@ export function DocumentWorkspace({
         })
       )
       if (restoreNonce.current !== nonce) return
+      if (userOpenedRef.current) {
+        setSessionReady(true)
+        return
+      }
       const panes: PaneState[] = stored.panes
         .map((pane) => {
           const tabs = pane.tabs
@@ -109,6 +116,7 @@ export function DocumentWorkspace({
 
   useEffect(() => {
     if (!request) return
+    userOpenedRef.current = true
     const existingPane = panes.find((pane) =>
       pane.tabs.some((tab) => tab.path === request.file.path)
     )
