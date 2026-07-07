@@ -4,6 +4,7 @@ import type {
   AgentAvailability,
   DirEntry,
   HotkeyTriggerEvent,
+  ProjectFileEntry,
   ProjectInfo,
   ResolvedColorScheme,
   SettingsPatch,
@@ -12,6 +13,7 @@ import type {
 import { matchesHotkeyPress } from '../shared/hotkeys'
 import { api } from './lib/api'
 import { baseName } from './lib/fileKind'
+import { recordRecentFile } from './lib/recentFiles'
 import { usePanels } from './hooks/usePanels'
 import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
@@ -19,6 +21,7 @@ import {
   DocumentWorkspace,
   type OpenDocumentRequest
 } from './components/DocumentWorkspace'
+import { QuickOpen } from './components/QuickOpen'
 import { RightPanel, type RightPanelHandle } from './components/RightPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { useAppearance } from './hooks/useAppearance'
@@ -46,6 +49,7 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<DirEntry | null>(null)
   const [openRequest, setOpenRequest] = useState<OpenDocumentRequest | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false)
   const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
   const [systemColorScheme, setSystemColorScheme] = useState<ResolvedColorScheme>('light')
   const [agentAvailability, setAgentAvailability] = useState<AgentAvailability[]>([])
@@ -143,12 +147,16 @@ export function App(): JSX.Element {
     void api.openPath(path).catch(() => undefined)
   }, [])
 
-  const selectFile = useCallback((file: DirEntry) => {
-    setSelected(file)
-    setOpenRequest({ file, nonce: Date.now() })
-    // Seed the AI context with the first opened document for a zero-setup start.
-    setAiContextPaths((current) => (current.length === 0 ? [file.path] : current))
-  }, [])
+  const selectFile = useCallback(
+    (file: DirEntry) => {
+      setSelected(file)
+      setOpenRequest({ file, nonce: Date.now() })
+      // Seed the AI context with the first opened document for a zero-setup start.
+      setAiContextPaths((current) => (current.length === 0 ? [file.path] : current))
+      if (project) recordRecentFile(project.root, file)
+    },
+    [project]
+  )
 
   const addToAiContext = useCallback((entry: DirEntry) => {
     setAiContextPaths((current) =>
@@ -208,6 +216,20 @@ export function App(): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (settingsOpen) return
+      if (
+        e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (e.key === 'p' || e.key === 'P' || e.code === 'KeyP')
+      ) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setQuickOpenOpen((current) => !current)
+        return
+      }
+      // While the quick-open palette is up, leave the keyboard to it.
+      if (quickOpenOpen) return
       // Match by physical key too: on macOS Option+B yields key '∫', which
       // would otherwise break ⌘⌥B while Option is held.
       if (e.metaKey && (e.key === 'b' || e.key === 'B' || e.code === 'KeyB')) {
@@ -238,7 +260,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [panels, runHotkey, settings.hotkeys, settingsOpen])
+  }, [panels, quickOpenOpen, runHotkey, settings.hotkeys, settingsOpen])
 
   const appearanceStyle = {
     '--panel-opacity': appearance.panelOpacity,
@@ -269,6 +291,22 @@ export function App(): JSX.Element {
     rightPanelRef.current?.loadTerminalSession(sessionId)
     setSettingsOpen(false)
   }
+
+  const deleteTerminalSessions = (sessionIds: string[]): void => {
+    rightPanelRef.current?.deleteTerminalSessions(sessionIds)
+  }
+
+  const openQuickOpenPick = useCallback(
+    (entry: ProjectFileEntry) => {
+      selectFile({
+        name: entry.name,
+        path: entry.path,
+        isDirectory: false,
+        isSymbolicLink: false
+      })
+    },
+    [selectFile]
+  )
 
   return (
     <div
@@ -370,6 +408,13 @@ export function App(): JSX.Element {
         </div>
       </div>
 
+      <QuickOpen
+        open={quickOpenOpen}
+        projectRoot={project?.root ?? null}
+        onPick={openQuickOpenPick}
+        onClose={() => setQuickOpenOpen(false)}
+      />
+
       <SettingsPanel
         open={settingsOpen}
         settings={{
@@ -387,6 +432,7 @@ export function App(): JSX.Element {
         onChange={changeSettings}
         onReset={resetSettings}
         onLoadTerminalSession={loadTerminalSession}
+        onDeleteTerminalSessions={deleteTerminalSessions}
         onClose={() => setSettingsOpen(false)}
       />
     </div>

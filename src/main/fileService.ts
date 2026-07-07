@@ -3,6 +3,7 @@ import path from 'path'
 import type {
   DirEntry,
   FileInfo,
+  ProjectFileEntry,
   ReadFileResult,
   WriteFileResult
 } from '../shared/types.js'
@@ -38,6 +39,49 @@ export async function readDir(root: string, dirPath: string): Promise<DirEntry[]
     return a.name.localeCompare(b.name)
   })
   return entries
+}
+
+/** Caps that keep the quick-open listing responsive on huge projects. */
+export const MAX_PROJECT_FILES = 20000
+const MAX_WALK_DEPTH = 16
+
+/**
+ * Recursively list every non-ignored file under the project root for the
+ * quick-open palette. Symlinked directories are not followed (avoids cycles
+ * and root escapes); the walk stops early at MAX_PROJECT_FILES entries.
+ */
+export async function listProjectFiles(root: string): Promise<ProjectFileEntry[]> {
+  const realRoot = await fs.realpath(root)
+  const results: ProjectFileEntry[] = []
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: realRoot, depth: 0 }]
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const { dir, depth } = queue[head]
+    let dirents
+    try {
+      dirents = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      continue // unreadable directory — skip silently, like the tree does
+    }
+    for (const dirent of dirents) {
+      if (isIgnoredEntry(dirent.name)) continue
+      const fullPath = path.join(dir, dirent.name)
+      if (dirent.isDirectory()) {
+        if (depth < MAX_WALK_DEPTH) queue.push({ dir: fullPath, depth: depth + 1 })
+      } else if (dirent.isFile()) {
+        results.push({
+          name: dirent.name,
+          path: fullPath,
+          relativePath: path.relative(realRoot, fullPath)
+        })
+        if (results.length >= MAX_PROJECT_FILES) {
+          return results.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+        }
+      }
+    }
+  }
+
+  return results.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 }
 
 export async function getFileInfo(root: string, filePath: string): Promise<FileInfo> {

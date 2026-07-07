@@ -4,3 +4,4 @@ dist/
 .codex-artifacts/
 *.log
 .DS_Store
+.claude/

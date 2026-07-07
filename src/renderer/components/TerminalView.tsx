@@ -28,55 +28,56 @@ interface TerminalViewProps {
 const DEFAULT_FONT_STACK = "'SF Mono', ui-monospace, Menlo, monospace"
 
 const LIGHT_THEME: ITheme = {
-  background: '#fbfbfc',
-  foreground: '#252529',
-  cursor: '#0a5fdc',
+  background: '#fcfbf8',
+  foreground: '#2b2620',
+  cursor: '#c15f3c',
   cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(10,95,220,0.18)',
-  black: '#1f2328',
-  red: '#cf222e',
-  green: '#116329',
-  yellow: '#9a6700',
-  blue: '#0969da',
-  magenta: '#8250df',
-  cyan: '#1b7c83',
-  white: '#6e7781',
-  brightBlack: '#57606a',
-  brightRed: '#a40e26',
-  brightGreen: '#1a7f37',
-  brightYellow: '#9a6700',
-  brightBlue: '#218bff',
-  brightMagenta: '#8250df',
-  brightCyan: '#3192aa',
-  brightWhite: '#24292f'
+  selectionBackground: 'rgba(193,95,60,0.18)',
+  black: '#2b2620',
+  red: '#b85c3e',
+  green: '#5b8c5a',
+  yellow: '#c9963a',
+  blue: '#667c91',
+  magenta: '#9a6f7f',
+  cyan: '#4f8b8b',
+  white: '#a39a8c',
+  brightBlack: '#7a7265',
+  brightRed: '#c15f3c',
+  brightGreen: '#6f9d6e',
+  brightYellow: '#d9a441',
+  brightBlue: '#7d91a3',
+  brightMagenta: '#b07d90',
+  brightCyan: '#5fa0a0',
+  brightWhite: '#fcfbf8'
 }
 
 const DARK_THEME: ITheme = {
-  background: '#17181c',
-  foreground: '#e6e6ea',
-  cursor: '#58a6ff',
-  cursorAccent: '#17181c',
-  selectionBackground: 'rgba(88,166,255,0.30)',
-  black: '#3b3f46',
-  red: '#ff7b72',
-  green: '#3fb950',
-  yellow: '#d29922',
-  blue: '#58a6ff',
-  magenta: '#bc8cff',
-  cyan: '#39c5cf',
-  white: '#b1bac4',
-  brightBlack: '#8b949e',
-  brightRed: '#ffa198',
-  brightGreen: '#56d364',
-  brightYellow: '#e3b341',
-  brightBlue: '#79c0ff',
-  brightMagenta: '#d2a8ff',
-  brightCyan: '#56d4dd',
-  brightWhite: '#f0f6fc'
+  background: '#17140f',
+  foreground: '#ede6dc',
+  cursor: '#d97757',
+  cursorAccent: '#17140f',
+  selectionBackground: 'rgba(217,119,87,0.28)',
+  black: '#221f1b',
+  red: '#e07a60',
+  green: '#7fa879',
+  yellow: '#d9a441',
+  blue: '#8ba0b2',
+  magenta: '#c08ea0',
+  cyan: '#7bb0aa',
+  white: '#a89e90',
+  brightBlack: '#7a7265',
+  brightRed: '#f08a68',
+  brightGreen: '#9fbe97',
+  brightYellow: '#e6bd62',
+  brightBlue: '#a4b5c3',
+  brightMagenta: '#d0a4b2',
+  brightCyan: '#94c0ba',
+  brightWhite: '#f6efe6'
 }
 
 export interface TerminalViewHandle {
   focus: () => void
+  getPreviewLines: (maxLines?: number) => string[]
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function TerminalView({
@@ -105,6 +106,18 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
     focus: () => {
       termRef.current?.focus()
       focusRef.current()
+    },
+    getPreviewLines: (maxLines = 40) => {
+      const term = termRef.current
+      if (!term) return []
+      const buffer = term.buffer.active
+      const start = Math.max(0, buffer.length - maxLines)
+      const lines: string[] = []
+      for (let index = start; index < buffer.length; index += 1) {
+        const line = buffer.getLine(index)?.translateToString(true).trimEnd()
+        if (line) lines.push(line)
+      }
+      return lines.slice(-maxLines)
     }
   }), [])
 

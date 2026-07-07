@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   Bot,
+  CheckSquare2,
   CheckCircle2,
   CircleAlert,
+  Eye,
   History,
   Keyboard,
   Monitor,
   Play,
   RotateCcw,
   Settings2,
+  Square,
   TerminalSquare,
+  Trash2,
   X
 } from 'lucide-react'
 import type {
@@ -21,6 +25,7 @@ import type {
   TerminalSessionInfo
 } from '../../shared/types'
 import { RECOMMENDED_HOTKEYS } from '../../shared/hotkeyPresets'
+import fable5Logo from '../assets/fable-5-sidebar.png'
 
 type SettingsSection =
   | 'general'
@@ -41,6 +46,7 @@ interface SettingsPanelProps {
   onChange: (patch: SettingsPatch) => void
   onReset: () => void
   onLoadTerminalSession: (sessionId: string) => void
+  onDeleteTerminalSessions: (sessionIds: string[]) => void
   onClose: () => void
 }
 
@@ -83,11 +89,14 @@ export function SettingsPanel({
   onChange,
   onReset,
   onLoadTerminalSession,
+  onDeleteTerminalSessions,
   onClose
 }: SettingsPanelProps): JSX.Element | null {
   const [section, setSection] = useState<SettingsSection>('general')
   const [recordingHotkey, setRecordingHotkey] = useState<number | null>(null)
   const [recordingMessage, setRecordingMessage] = useState('按下组合键')
+  const [previewSessionId, setPreviewSessionId] = useState<string | null>(null)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set())
   const dialogRef = useRef<HTMLElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
@@ -96,6 +105,37 @@ export function SettingsPanel({
   useEffect(() => {
     recordingHotkeyRef.current = recordingHotkey
   }, [recordingHotkey])
+
+  useEffect(() => {
+    setPreviewSessionId((current) =>
+      current && terminalSessions.some((session) => session.id === current)
+        ? current
+        : terminalSessions[0]?.id ?? null
+    )
+    setSelectedSessionIds((current) => {
+      const deletableIds = new Set(
+        terminalSessions.filter((session) => session.closed).map((session) => session.id)
+      )
+      const next = new Set([...current].filter((id) => deletableIds.has(id)))
+      return sameSet(current, next) ? current : next
+    })
+  }, [terminalSessions])
+
+  const previewSession = useMemo(
+    () => terminalSessions.find((session) => session.id === previewSessionId) ?? null,
+    [previewSessionId, terminalSessions]
+  )
+  const deletableSessions = useMemo(
+    () => terminalSessions.filter((session) => session.closed),
+    [terminalSessions]
+  )
+  const selectedDeletableIds = useMemo(
+    () =>
+      deletableSessions
+        .map((session) => session.id)
+        .filter((id) => selectedSessionIds.has(id)),
+    [deletableSessions, selectedSessionIds]
+  )
 
   const updateHotkey = useCallback((
     index: number,
@@ -169,6 +209,44 @@ export function SettingsPanel({
   const startRecordingHotkey = (index: number): void => {
     setRecordingHotkey(index)
     setRecordingMessage('按下组合键')
+  }
+
+  const toggleSessionSelection = (session: TerminalSessionInfo): void => {
+    if (!session.closed) return
+    setSelectedSessionIds((current) => {
+      const next = new Set(current)
+      if (next.has(session.id)) next.delete(session.id)
+      else next.add(session.id)
+      return next
+    })
+  }
+
+  const toggleAllSessions = (): void => {
+    setSelectedSessionIds((current) =>
+      current.size === deletableSessions.length
+        ? new Set()
+        : new Set(deletableSessions.map((session) => session.id))
+    )
+  }
+
+  const deleteSessions = (sessionIds: string[]): void => {
+    const uniqueIds = [...new Set(sessionIds)]
+    if (!uniqueIds.length) return
+    const message =
+      uniqueIds.length === 1
+        ? '删除这个历史会话？'
+        : `删除选中的 ${uniqueIds.length} 个历史会话？`
+    if (!window.confirm(message)) return
+    onDeleteTerminalSessions(uniqueIds)
+    setSelectedSessionIds((current) => {
+      const next = new Set(current)
+      uniqueIds.forEach((id) => next.delete(id))
+      return next
+    })
+    if (previewSessionId && uniqueIds.includes(previewSessionId)) {
+      const fallback = terminalSessions.find((session) => !uniqueIds.includes(session.id))
+      setPreviewSessionId(fallback?.id ?? null)
+    }
   }
 
   if (!open) return null
@@ -506,28 +584,137 @@ export function SettingsPanel({
                     {terminalSessions.length === 0 ? (
                       <div className="session-empty">还没有可载入的终端会话。</div>
                     ) : (
-                      <div className="session-list">
-                        {terminalSessions.map((session) => (
-                          <div className="session-row" key={session.id}>
-                            <span className={`session-agent ${session.agent}`}>
-                              {session.agent === 'claude' ? 'Claude' : 'Codex'}
-                            </span>
-                            <span className="session-main">
-                              <strong>{session.label}</strong>
-                              <small>
-                                {session.closed ? '历史' : session.active ? '当前' : '打开'} ·{' '}
-                                {SESSION_STATUS_LABELS[session.status]} · {session.paneCount} 个窗格
-                              </small>
-                            </span>
-                            <button
-                              className="text-btn"
-                              onClick={() => onLoadTerminalSession(session.id)}
-                            >
-                              <Play size={13} />
-                              {session.closed ? '载入' : '切换'}
-                            </button>
+                      <div className="session-manager">
+                        <div className="session-toolbar">
+                          <button
+                            className="icon-btn"
+                            title={
+                              selectedDeletableIds.length === deletableSessions.length
+                                ? '取消全选'
+                                : '全选历史会话'
+                            }
+                            aria-label={
+                              selectedDeletableIds.length === deletableSessions.length
+                                ? '取消全选'
+                                : '全选历史会话'
+                            }
+                            disabled={deletableSessions.length === 0}
+                            onClick={toggleAllSessions}
+                          >
+                            {selectedDeletableIds.length === deletableSessions.length &&
+                            deletableSessions.length > 0 ? (
+                              <CheckSquare2 size={15} />
+                            ) : (
+                              <Square size={15} />
+                            )}
+                          </button>
+                          <span>{selectedDeletableIds.length} / {deletableSessions.length}</span>
+                          <button
+                            className="text-btn danger"
+                            disabled={selectedDeletableIds.length === 0}
+                            onClick={() => deleteSessions(selectedDeletableIds)}
+                          >
+                            <Trash2 size={13} />
+                            批量删除
+                          </button>
+                        </div>
+                        <div className="session-browser">
+                          <div className="session-list">
+                            {terminalSessions.map((session) => (
+                              <div
+                                className={`session-row${
+                                  previewSessionId === session.id ? ' selected' : ''
+                                }`}
+                                key={session.id}
+                              >
+                                <button
+                                  className="icon-btn session-check"
+                                  title={session.closed ? '选择历史会话' : '当前会话不可删除'}
+                                  aria-label={session.closed ? '选择历史会话' : '当前会话不可删除'}
+                                  disabled={!session.closed}
+                                  onClick={() => toggleSessionSelection(session)}
+                                >
+                                  {selectedSessionIds.has(session.id) ? (
+                                    <CheckSquare2 size={14} />
+                                  ) : (
+                                    <Square size={14} />
+                                  )}
+                                </button>
+                                <button
+                                  className="session-open-preview"
+                                  title="预览会话"
+                                  onClick={() => setPreviewSessionId(session.id)}
+                                >
+                                  <span className={`session-agent ${session.agent}`}>
+                                    {session.agent === 'claude' ? 'Claude' : 'Codex'}
+                                  </span>
+                                  <span className="session-main">
+                                    <strong>{session.label}</strong>
+                                    <small>
+                                      {session.closed ? '历史' : session.active ? '当前' : '打开'} ·{' '}
+                                      {SESSION_STATUS_LABELS[session.status]} · {session.paneCount}{' '}
+                                      个窗格
+                                    </small>
+                                  </span>
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                          {previewSession && (
+                            <div className="session-preview">
+                              <div className="session-preview-head">
+                                <Eye size={15} />
+                                <strong>{previewSession.label}</strong>
+                              </div>
+                              <dl>
+                                <div>
+                                  <dt>Agent</dt>
+                                  <dd>{previewSession.agent === 'claude' ? 'Claude' : 'Codex'}</dd>
+                                </div>
+                                <div>
+                                  <dt>状态</dt>
+                                  <dd>
+                                    {previewSession.closed
+                                      ? '历史'
+                                      : previewSession.active
+                                        ? '当前'
+                                        : '打开'} · {SESSION_STATUS_LABELS[previewSession.status]}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>窗格</dt>
+                                  <dd>{previewSession.paneCount}</dd>
+                                </div>
+                                <div>
+                                  <dt>更新</dt>
+                                  <dd>{formatSessionTime(previewSession.updatedAt)}</dd>
+                                </div>
+                              </dl>
+                              <pre className="session-preview-output">
+                                {previewSession.previewLines?.length
+                                  ? previewSession.previewLines.join('\n')
+                                  : '无预览'}
+                              </pre>
+                              <div className="session-preview-actions">
+                                <button
+                                  className="text-btn"
+                                  onClick={() => onLoadTerminalSession(previewSession.id)}
+                                >
+                                  <Play size={13} />
+                                  {previewSession.closed ? '载入' : '切换'}
+                                </button>
+                                <button
+                                  className="text-btn danger"
+                                  disabled={!previewSession.closed}
+                                  onClick={() => deleteSessions([previewSession.id])}
+                                >
+                                  <Trash2 size={13} />
+                                  删除
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </SettingsGroup>
@@ -607,6 +794,11 @@ export function SettingsPanel({
                     </SettingsGroup>
                     <SettingsGroup title="关于">
                       <div className="about-row">
+                        <img
+                          className="about-logo"
+                          src={fable5Logo}
+                          alt="Fable 5 by Anthropic"
+                        />
                         <span className="about-badge">Built &amp; reviewed with Claude Fable 5</span>
                         <small>
                           本项目由 Claude Fable 5（Anthropic）协助开发与审查。此为项目自述标注，非
@@ -697,6 +889,24 @@ function normalizeAcceleratorKey(event: HotkeyEventLike): string | null {
   if (/^F\d{1,2}$/.test(key)) return key
   if (/^(Tab|Enter|Home|End|PageUp|PageDown)$/.test(key)) return key
   return key.length > 1 ? key : null
+}
+
+function sameSet<T>(left: Set<T>, right: Set<T>): boolean {
+  if (left.size !== right.size) return false
+  for (const item of left) {
+    if (!right.has(item)) return false
+  }
+  return true
+}
+
+function formatSessionTime(updatedAt: number): string {
+  if (!Number.isFinite(updatedAt)) return '未知'
+  return new Intl.DateTimeFormat(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(updatedAt))
 }
 
 function SettingsGroup({

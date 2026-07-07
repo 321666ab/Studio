@@ -97,7 +97,7 @@ function TreeNode({
           {error && (
             <div
               className="tree-row"
-              style={{ paddingLeft: indent + 20, color: '#b3261e' }}
+              style={{ paddingLeft: indent + 20, color: 'var(--status-failed)' }}
               title={error}
             >
               {error}

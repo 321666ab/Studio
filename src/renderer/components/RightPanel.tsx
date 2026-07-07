@@ -14,6 +14,7 @@ import {
   ListChecks,
   PanelRightClose,
   Plus,
+  Rows2,
   TerminalSquare,
   Trash2,
   X
@@ -42,12 +43,14 @@ interface TerminalTab {
   id: string
   agent: PtyAgent
   label: string
+  splitLayout: TerminalSplitLayout
   panes: TerminalPane[]
 }
 
 export interface RightPanelHandle {
   focusOrOpenTerminal: (agent: PtyAgent) => boolean
   loadTerminalSession: (sessionId: string) => boolean
+  deleteTerminalSessions: (sessionIds: string[]) => number
   pasteToActiveTerminal: (text: string) => boolean
 }
 
@@ -64,6 +67,7 @@ interface RightPanelProps {
 }
 
 type RightPanelMode = 'tasks' | 'terminal'
+type TerminalSplitLayout = 'columns' | 'rows'
 const MODE_STORAGE_KEY = 'studio.rightPanelMode.v1'
 
 const STATUS_LABEL: Record<TerminalTaskStatus, string> = {
@@ -72,6 +76,18 @@ const STATUS_LABEL: Record<TerminalTaskStatus, string> = {
   active: '活跃',
   exited: '已退出',
   error: '错误'
+}
+const AGENT_META: Record<PtyAgent, { label: string; mode: string; icon: typeof Bot }> = {
+  claude: {
+    label: 'Claude',
+    mode: '直接进入 Claude bypass 模式',
+    icon: Bot
+  },
+  codex: {
+    label: 'Codex',
+    mode: '直接进入 Codex bypass 模式',
+    icon: Code2
+  }
 }
 const SESSION_HISTORY_KEY = 'studio.terminalSessions.v1'
 const SESSION_HISTORY_LIMIT = 30
@@ -145,7 +161,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
   )
 
   useEffect(() => {
-    const activeSessions = tabs.map((tab) => toSessionInfo(tab, activeId))
+    const activeSessions = tabs.map((tab) => toSessionInfo(tab, activeId, terminalRefs.current))
     const activeIds = new Set(activeSessions.map((session) => session.id))
     onSessionsChange([
       ...activeSessions,
@@ -185,7 +201,8 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     const tab: TerminalTab = {
       id,
       agent,
-      label: preferredLabel?.trim().slice(0, 40) || `${agent === 'claude' ? 'Claude' : 'Codex'} ${number}`,
+      label: preferredLabel?.trim().slice(0, 40) || `${AGENT_META[agent].label} ${number}`,
+      splitLayout: 'columns',
       panes: [{ id: paneId, status: 'starting' }]
     }
     setTabs((current) => [...current, tab])
@@ -193,7 +210,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     setActivePaneId(paneId)
     setPickerOpen(false)
     setMessage(null)
-    rememberSession(toSessionInfo(tab, id))
+    rememberSession(toSessionInfo(tab, id, terminalRefs.current))
     focusPaneSoon(paneId)
     return id
   }, [focusPaneSoon, rememberSession])
@@ -241,6 +258,14 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     [changeMode, focusPaneSoon, openTerminal, sessionHistory, tabs]
   )
 
+  const deleteTerminalSessions = useCallback((sessionIds: string[]): number => {
+    const ids = new Set(sessionIds)
+    if (!ids.size) return 0
+    const deleted = sessionHistory.filter((session) => ids.has(session.id)).length
+    setSessionHistory((current) => current.filter((session) => !ids.has(session.id)))
+    return deleted
+  }, [sessionHistory])
+
   const pasteToActiveTerminal = useCallback(
     (text: string): boolean => {
       const paneId = resolveActivePaneId()
@@ -263,9 +288,10 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     () => ({
       focusOrOpenTerminal,
       loadTerminalSession,
+      deleteTerminalSessions,
       pasteToActiveTerminal
     }),
-    [focusOrOpenTerminal, loadTerminalSession, pasteToActiveTerminal]
+    [deleteTerminalSessions, focusOrOpenTerminal, loadTerminalSession, pasteToActiveTerminal]
   )
 
   const closeTab = (id: string): void => {
@@ -275,7 +301,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
       const next = current.filter((tab) => tab.id !== id)
       if (closing) {
         closing.panes.forEach((pane) => window.studio.pty.dispose(pane.id))
-        rememberSession({ ...toSessionInfo(closing, activeId), status: 'closed', active: false, closed: true, updatedAt: Date.now() })
+        rememberSession({ ...toSessionInfo(closing, activeId, terminalRefs.current), status: 'closed', active: false, closed: true, updatedAt: Date.now() })
       }
       if (activeId === id) {
         const fallback = next[Math.min(index, next.length - 1)] ?? null
@@ -295,7 +321,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
       if (!tab) return current
       if (tab.panes.length <= 1) {
         window.studio.pty.dispose(paneId)
-        rememberSession({ ...toSessionInfo(tab, activeId), status: 'closed', active: false, closed: true, updatedAt: Date.now() })
+        rememberSession({ ...toSessionInfo(tab, activeId, terminalRefs.current), status: 'closed', active: false, closed: true, updatedAt: Date.now() })
         const next = current.filter((item) => item.id !== tabId)
         const fallback = next[0] ?? null
         if (activeId === tabId) {
@@ -306,12 +332,12 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
       }
       window.studio.pty.dispose(paneId)
       const closingPaneIndex = tab.panes.findIndex((pane) => pane.id === paneId)
-      rememberSession(toClosedPaneSession(tab, paneId, closingPaneIndex))
+      rememberSession(toClosedPaneSession(tab, paneId, closingPaneIndex, terminalRefs.current))
       return current.map((item) => {
         if (item.id !== tabId) return item
         const panes = item.panes.filter((pane) => pane.id !== paneId)
         if (activePaneId === paneId) setActivePaneId(panes[0]?.id ?? null)
-        return { ...item, panes }
+        return { ...item, panes, splitLayout: 'columns' }
       })
     })
   }
@@ -323,7 +349,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         const shouldClose = status === 'exited' || status === 'error'
         if (shouldClose) {
           tab.panes.forEach((pane) => window.studio.pty.dispose(pane.id))
-          rememberSession({ ...toSessionInfo(tab, activeId), status: 'closed', active: false, closed: true, updatedAt: Date.now() })
+          rememberSession({ ...toSessionInfo(tab, activeId, terminalRefs.current), status: 'closed', active: false, closed: true, updatedAt: Date.now() })
         }
         return !shouldClose
       })
@@ -352,21 +378,22 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     )
   }
 
-  const toggleSplit = (): void => {
+  const toggleSplit = (layout: TerminalSplitLayout): void => {
     if (!activeId) return
     setTabs((current) =>
       current.map((tab) => {
         if (tab.id !== activeId) return tab
-        if (tab.panes.length > 1) {
+        if (tab.panes.length > 1 && tab.splitLayout === layout) {
           const paneToClose = tab.panes[1]
           window.studio.pty.dispose(paneToClose.id)
-          rememberSession(toClosedPaneSession(tab, paneToClose.id, 1))
+          rememberSession(toClosedPaneSession(tab, paneToClose.id, 1, terminalRefs.current))
           setActivePaneId(tab.panes[0]?.id ?? null)
-          return { ...tab, panes: [tab.panes[0]] }
+          return { ...tab, panes: [tab.panes[0]], splitLayout: layout }
         }
+        if (tab.panes.length > 1) return { ...tab, splitLayout: layout }
         const pane = { id: `${tab.id}-pane-2`, status: 'starting' as TerminalTaskStatus }
         setActivePaneId(pane.id)
-        return { ...tab, panes: [...tab.panes, pane] }
+        return { ...tab, panes: [...tab.panes, pane], splitLayout: layout }
       })
     )
   }
@@ -384,7 +411,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         current.map((tab) => {
           if (tab.id !== renamingId) return tab
           const next = { ...tab, label }
-          rememberSession(toSessionInfo(next, activeId))
+          rememberSession(toSessionInfo(next, activeId, terminalRefs.current))
           return next
         })
       )
@@ -401,19 +428,21 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
               role="tab"
               aria-selected={showTasks}
               className={showTasks ? 'active' : ''}
+              title="任务"
+              aria-label="任务"
               onClick={() => changeMode('tasks')}
             >
-              <ListChecks size={13} strokeWidth={1.9} />
-              任务
+              <ListChecks size={15} strokeWidth={1.9} />
             </button>
             <button
               role="tab"
               aria-selected={!showTasks}
               className={!showTasks ? 'active' : ''}
+              title="终端"
+              aria-label="终端"
               onClick={() => changeMode('terminal')}
             >
-              <TerminalSquare size={13} strokeWidth={1.9} />
-              终端
+              <TerminalSquare size={15} strokeWidth={1.9} />
             </button>
           </div>
         ) : (
@@ -425,7 +454,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         <div className="right-tabs" style={showTasks ? { display: 'none' } : undefined}>
           {tabs.map((tab) => {
             const status = aggregateStatus(tab.panes)
-            const AgentIcon = tab.agent === 'claude' ? Bot : Code2
+            const AgentIcon = AGENT_META[tab.agent].icon
             return (
               <div
                 key={tab.id}
@@ -501,13 +530,44 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
           {!showTasks && (
             <>
               <button
-                className={`icon-btn${activeTab?.panes.length === 2 ? ' active' : ''}`}
-                title={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
-                aria-label={activeTab?.panes.length === 2 ? '关闭终端分屏' : '左右分屏'}
+                className={`icon-btn${
+                  activeTab?.panes.length === 2 && activeTab.splitLayout === 'columns'
+                    ? ' active'
+                    : ''
+                }`}
+                title={
+                  activeTab?.panes.length === 2 && activeTab.splitLayout === 'columns'
+                    ? '关闭左右分屏'
+                    : '左右分屏'
+                }
+                aria-label={
+                  activeTab?.panes.length === 2 && activeTab.splitLayout === 'columns'
+                    ? '关闭左右分屏'
+                    : '左右分屏'
+                }
                 disabled={!activeTab}
-                onClick={toggleSplit}
+                onClick={() => toggleSplit('columns')}
               >
                 <Columns2 size={15} strokeWidth={1.8} />
+              </button>
+              <button
+                className={`icon-btn${
+                  activeTab?.panes.length === 2 && activeTab.splitLayout === 'rows' ? ' active' : ''
+                }`}
+                title={
+                  activeTab?.panes.length === 2 && activeTab.splitLayout === 'rows'
+                    ? '关闭上下分屏'
+                    : '上下分屏'
+                }
+                aria-label={
+                  activeTab?.panes.length === 2 && activeTab.splitLayout === 'rows'
+                    ? '关闭上下分屏'
+                    : '上下分屏'
+                }
+                disabled={!activeTab}
+                onClick={() => toggleSplit('rows')}
+              >
+                <Rows2 size={15} strokeWidth={1.8} />
               </button>
               <button
                 className="icon-btn"
@@ -556,7 +616,9 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         {tabs.map((tab) => (
           <div
             key={tab.id}
-            className={`right-tab-content terminal-layout${tab.panes.length === 2 ? ' split' : ''}`}
+            className={`right-tab-content terminal-layout${
+              tab.panes.length === 2 ? ` split split-${tab.splitLayout}` : ''
+            }`}
             style={{ display: !showTasks && activeId === tab.id ? 'flex' : 'none' }}
           >
             {project ? (
@@ -568,7 +630,15 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
                 >
                   {tab.panes.length === 2 && (
                     <div className="terminal-pane-head">
-                      <span>{index === 0 ? '左侧' : '右侧'}</span>
+                      <span>
+                        {tab.splitLayout === 'rows'
+                          ? index === 0
+                            ? '上方'
+                            : '下方'
+                          : index === 0
+                            ? '左侧'
+                            : '右侧'}
+                      </span>
                       <span className={`terminal-status ${pane.status}`}>
                         <i />
                         {STATUS_LABEL[pane.status]}
@@ -651,8 +721,8 @@ function AgentChoice({
   compact?: boolean
   onChoose: (agent: PtyAgent) => void
 }): JSX.Element {
-  const isClaude = agent === 'claude'
-  const Icon = isClaude ? Bot : Code2
+  const meta = AGENT_META[agent]
+  const Icon = meta.icon
   return (
     <button onClick={() => onChoose(agent)}>
       {!compact && (
@@ -662,8 +732,8 @@ function AgentChoice({
       )}
       {compact && <Icon size={15} strokeWidth={1.8} />}
       <span>
-        <strong>{isClaude ? 'Claude' : 'Codex'}</strong>
-        <small>{isClaude ? '直接进入 Claude bypass 模式' : '直接进入 Codex bypass 模式'}</small>
+        <strong>{meta.label}</strong>
+        <small>{compact ? 'bypass' : meta.mode}</small>
       </span>
     </button>
   )
@@ -677,7 +747,11 @@ function aggregateStatus(panes: TerminalPane[]): TerminalTaskStatus {
   return 'idle'
 }
 
-function toSessionInfo(tab: TerminalTab, activeId: string | null): TerminalSessionInfo {
+function toSessionInfo(
+  tab: TerminalTab,
+  activeId: string | null,
+  terminals: Map<string, TerminalViewHandle>
+): TerminalSessionInfo {
   return {
     id: tab.id,
     agent: tab.agent,
@@ -686,14 +760,16 @@ function toSessionInfo(tab: TerminalTab, activeId: string | null): TerminalSessi
     paneCount: tab.panes.length,
     active: tab.id === activeId,
     closed: false,
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    previewLines: collectPreviewLines(tab.panes, terminals)
   }
 }
 
 function toClosedPaneSession(
   tab: TerminalTab,
   paneId: string,
-  paneIndex: number
+  paneIndex: number,
+  terminals: Map<string, TerminalViewHandle>
 ): TerminalSessionInfo {
   return {
     id: paneId,
@@ -703,8 +779,21 @@ function toClosedPaneSession(
     paneCount: 1,
     active: false,
     closed: true,
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    previewLines: terminals.get(paneId)?.getPreviewLines(40) ?? []
   }
+}
+
+function collectPreviewLines(
+  panes: TerminalPane[],
+  terminals: Map<string, TerminalViewHandle>
+): string[] {
+  const lines = panes.flatMap((pane, index) => {
+    const preview = terminals.get(pane.id)?.getPreviewLines(panes.length > 1 ? 22 : 40) ?? []
+    if (panes.length <= 1 || preview.length === 0) return preview
+    return [`[窗格 ${index + 1}]`, ...preview]
+  })
+  return lines.slice(-40)
 }
 
 function loadSessionHistory(): TerminalSessionInfo[] {

@@ -33,7 +33,13 @@ import type {
   SettingsPatch
 } from '../shared/types.js'
 import { projectState } from './project.js'
-import { getFileInfo, readDir, readFileText, writeMarkdown } from './fileService.js'
+import {
+  getFileInfo,
+  listProjectFiles,
+  readDir,
+  readFileText,
+  writeMarkdown
+} from './fileService.js'
 import { PtyManager, registerPtyHandlers } from './pty.js'
 import { resolveWithinRoot } from './security.js'
 import { SettingsStore, defaultSettingsPath } from './settings.js'
@@ -79,8 +85,8 @@ function createWindow(): void {
     titleBarStyle: 'hiddenInset',
     vibrancy: 'under-window',
     visualEffectState: 'followWindow',
-    backgroundColor: '#00000000',
-    transparent: true,
+    backgroundColor: '#f0ebe1',
+    transparent: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -239,6 +245,14 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.fs.readDir, async (_e, dirPath: string) => {
     try {
       return ok(await readDir(projectState.requireRoot(), dirPath))
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(IPC.fs.listFiles, async () => {
+    try {
+      return ok(await listProjectFiles(projectState.requireRoot()))
     } catch (err) {
       return fail(err)
     }

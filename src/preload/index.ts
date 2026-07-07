@@ -14,6 +14,7 @@ import type {
   HotkeyTriggerEvent,
   IpcResult,
   PathContextMenuResult,
+  ProjectFileEntry,
   ProjectInfo,
   PtyCreateOptions,
   PtyDataEvent,
@@ -34,6 +35,8 @@ const api: StudioApi = {
     ipcRenderer.invoke(IPC.project.current) as Promise<IpcResult<ProjectInfo | null>>,
   readDir: (dirPath: string) =>
     ipcRenderer.invoke(IPC.fs.readDir, dirPath) as Promise<IpcResult<DirEntry[]>>,
+  listProjectFiles: () =>
+    ipcRenderer.invoke(IPC.fs.listFiles) as Promise<IpcResult<ProjectFileEntry[]>>,
   getFileInfo: (filePath: string) =>
     ipcRenderer.invoke(IPC.fs.fileInfo, filePath) as Promise<IpcResult<FileInfo>>,
   readFile: (filePath: string) =>

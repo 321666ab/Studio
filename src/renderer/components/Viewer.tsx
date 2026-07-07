@@ -15,6 +15,7 @@ import {
   FileQuestion,
   FileText,
   FileX2,
+  ListTree,
   Pencil,
   RotateCw,
   Save
@@ -24,6 +25,8 @@ import { api } from '../lib/api'
 import { fileKind, kindLabel } from '../lib/fileKind'
 import { previewUrl } from '../lib/preview'
 import { htmlToMarkdown, renderMarkdown } from '../lib/markdown'
+import { extractOutline, type OutlineItem } from '../lib/outline'
+import { MarkdownOutline } from './MarkdownOutline'
 
 interface ViewerProps {
   file: DirEntry | null
@@ -39,6 +42,8 @@ interface TextState {
   truncated: boolean
   error: string
 }
+
+const OUTLINE_STORAGE_KEY = 'studio.markdownOutline.v1'
 
 export function Viewer({
   file,
@@ -119,6 +124,12 @@ function TextOrMarkdownView({
   const [mode, setMode] = useState<'preview' | 'edit'>('preview')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const savedTimerRef = useRef<number | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const editTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [outlineOpen, setOutlineOpen] = useState(
+    () => localStorage.getItem(OUTLINE_STORAGE_KEY) !== 'hidden'
+  )
+  const [activeHeading, setActiveHeading] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -164,7 +175,21 @@ function TextOrMarkdownView({
     () => (markdown && state.status === 'ready' ? renderMarkdown(state.content) : ''),
     [markdown, state.status, state.content]
   )
+  const outline = useMemo(
+    () => (markdown && state.status === 'ready' ? extractOutline(state.content) : []),
+    [markdown, state.status, state.content]
+  )
   const dirty = state.content !== state.savedContent
+  const saveStatusLabel =
+    saveState === 'saving'
+      ? '正在保存…'
+      : saveState === 'error'
+        ? state.error
+        : dirty
+          ? '未保存'
+          : saveState === 'saved'
+            ? '已保存'
+            : '已同步'
 
   useEffect(() => {
     if (markdown) onDirtyChange?.(file.path, dirty)
@@ -205,6 +230,74 @@ function TextOrMarkdownView({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [focused, markdown, save])
 
+  const toggleOutline = useCallback(() => {
+    setOutlineOpen((current) => {
+      const next = !current
+      localStorage.setItem(OUTLINE_STORAGE_KEY, next ? 'shown' : 'hidden')
+      return next
+    })
+  }, [])
+
+  // Scroll-spy: track which heading currently tops the preview viewport.
+  useEffect(() => {
+    if (!markdown || mode !== 'preview' || !outlineOpen || outline.length === 0) return
+    const container = contentRef.current?.querySelector<HTMLElement>('.markdown')
+    if (!container) return
+    let frame = 0
+    const update = (): void => {
+      frame = 0
+      const headings = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')
+      const top = container.getBoundingClientRect().top
+      let active = 0
+      headings.forEach((el, index) => {
+        if (el.getBoundingClientRect().top - top <= 16) active = index
+      })
+      setActiveHeading(active)
+    }
+    const onScroll = (): void => {
+      if (!frame) frame = window.requestAnimationFrame(update)
+    }
+    container.addEventListener('scroll', onScroll)
+    update()
+    return () => {
+      container.removeEventListener('scroll', onScroll)
+      if (frame) window.cancelAnimationFrame(frame)
+    }
+  }, [markdown, mode, outline.length, outlineOpen, html])
+
+  const jumpToHeading = useCallback(
+    (item: OutlineItem) => {
+      setActiveHeading(item.index)
+      if (mode === 'preview') {
+        const container = contentRef.current?.querySelector<HTMLElement>('.markdown')
+        const headings = container?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')
+        if (!headings || headings.length === 0) return
+        headings[Math.min(item.index, headings.length - 1)].scrollIntoView({
+          block: 'start',
+          behavior: 'smooth'
+        })
+        return
+      }
+      const textarea = editTextareaRef.current
+      if (!textarea) return
+      // Select the heading line, then approximate its scroll position by line
+      // ratio — soft wraps make exact math impossible without a mirror layout.
+      const content = textarea.value
+      let offset = 0
+      for (let line = 0; line < item.line && offset !== -1; line += 1) {
+        offset = content.indexOf('\n', offset) + 1 || -1
+      }
+      if (offset === -1) return
+      const lineEnd = content.indexOf('\n', offset)
+      textarea.focus()
+      textarea.setSelectionRange(offset, lineEnd === -1 ? content.length : lineEnd)
+      const totalLines = Math.max(1, (content.match(/\n/g)?.length ?? 0) + 1)
+      textarea.scrollTop =
+        (item.line / totalLines) * Math.max(0, textarea.scrollHeight - textarea.clientHeight)
+    },
+    [mode]
+  )
+
   if (state.status === 'loading') {
     return (
       <div className="placeholder">
@@ -226,42 +319,45 @@ function TextOrMarkdownView({
     <>
       {markdown && (
         <div className="markdown-toolbar">
-          <div className="segmented-control">
+          <div className="segmented-control markdown-mode-switch">
             <button
               className={mode === 'preview' ? 'active' : ''}
+              title="预览编辑"
+              aria-label="预览编辑"
               onClick={() => setMode('preview')}
             >
               <Eye size={13} strokeWidth={1.9} />
-              预览编辑
             </button>
             <button
               className={mode === 'edit' ? 'active' : ''}
               disabled={state.truncated}
+              title="源码"
+              aria-label="源码"
               onClick={() => setMode('edit')}
             >
               <Pencil size={13} strokeWidth={1.9} />
-              源码
             </button>
           </div>
-          <span className={`save-status${dirty ? ' dirty' : ''}`}>
-            {saveState === 'saving'
-              ? '正在保存…'
-              : saveState === 'error'
-                ? state.error
-                : dirty
-                  ? '未保存'
-                  : saveState === 'saved'
-                    ? '已保存'
-                    : '已同步'}
+          <span className="save-status" aria-live="polite">
+            <span className="sr-only">{saveStatusLabel}</span>
           </span>
           <button
-            className="text-btn markdown-save"
+            className="icon-btn markdown-save"
             disabled={!dirty || saveState === 'saving' || state.truncated}
+            title={`保存 (${saveStatusLabel})`}
+            aria-label="保存"
             onClick={() => void save()}
           >
             {saveState === 'saved' ? <Check size={14} /> : <Save size={14} />}
-            保存
-            <kbd>⌘S</kbd>
+          </button>
+          <button
+            className={`icon-btn${outlineOpen ? ' active' : ''}`}
+            title={outlineOpen ? '隐藏大纲' : '显示大纲'}
+            aria-label="大纲"
+            aria-pressed={outlineOpen}
+            onClick={toggleOutline}
+          >
+            <ListTree size={14} strokeWidth={1.9} />
           </button>
         </div>
       )}
@@ -277,23 +373,37 @@ function TextOrMarkdownView({
           文件较大，仅显示前半部分。
         </div>
       )}
-      {markdown && mode === 'edit' ? (
-        <textarea
-          className="markdown-editor"
-          value={state.content}
-          spellCheck={false}
-          aria-label={`${file.name} Markdown 编辑器`}
-          onChange={(event) => {
-            updateContent(event.currentTarget.value)
-          }}
-        />
-      ) : markdown ? (
-        <MarkdownPreviewEditor
-          source={state.content}
-          html={html}
-          disabled={state.truncated}
-          onChange={updateContent}
-        />
+      {markdown ? (
+        <div className="markdown-content-row" ref={contentRef}>
+          <div className="markdown-content-main">
+            {mode === 'edit' ? (
+              <textarea
+                ref={editTextareaRef}
+                className="markdown-editor"
+                value={state.content}
+                spellCheck={false}
+                aria-label={`${file.name} Markdown 编辑器`}
+                onChange={(event) => {
+                  updateContent(event.currentTarget.value)
+                }}
+              />
+            ) : (
+              <MarkdownPreviewEditor
+                source={state.content}
+                html={html}
+                disabled={state.truncated}
+                onChange={updateContent}
+              />
+            )}
+          </div>
+          {outlineOpen && (
+            <MarkdownOutline
+              items={outline}
+              activeIndex={activeHeading}
+              onPick={jumpToHeading}
+            />
+          )}
+        </div>
       ) : (
         <pre className="text-view">{state.content}</pre>
       )}

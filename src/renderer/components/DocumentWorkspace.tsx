@@ -91,6 +91,30 @@ export function DocumentWorkspace({
     )
   }
 
+  // ⌘⇧[ / ⌘⇧] and Ctrl(+Shift)+Tab cycle tabs within the focused pane.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const isBracket =
+        e.metaKey &&
+        e.shiftKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        (e.code === 'BracketLeft' || e.code === 'BracketRight')
+      const isCtrlTab = e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab'
+      if (!isBracket && !isCtrlTab) return
+      const pane = panes.find((item) => item.id === focusedPane) ?? panes[0]
+      if (!pane || pane.tabs.length < 2 || !pane.activePath) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      const delta = isBracket ? (e.code === 'BracketRight' ? 1 : -1) : e.shiftKey ? -1 : 1
+      const index = pane.tabs.findIndex((tab) => tab.path === pane.activePath)
+      const next = pane.tabs[(index + delta + pane.tabs.length) % pane.tabs.length]
+      activate(pane.id, next.path)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [panes, focusedPane])
+
   const closeTab = (paneId: PaneState['id'], path: string): void => {
     if (dirtyPaths[path] && !window.confirm('此 Markdown 文档尚未保存，仍要关闭吗？')) return
     setDirtyPaths((current) => {

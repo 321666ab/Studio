@@ -12,6 +12,7 @@ import type {
   HotkeyTriggerEvent,
   IpcResult,
   PathContextMenuResult,
+  ProjectFileEntry,
   ProjectInfo,
   QuickLookPreview,
   ReadFileResult,
@@ -39,6 +40,9 @@ export const api = {
   },
   async readDir(dirPath: string): Promise<DirEntry[]> {
     return unwrap(await window.studio.readDir(dirPath))
+  },
+  async listProjectFiles(): Promise<ProjectFileEntry[]> {
+    return unwrap(await window.studio.listProjectFiles())
   },
   async getFileInfo(filePath: string): Promise<FileInfo> {
     return unwrap(await window.studio.getFileInfo(filePath))

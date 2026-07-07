@@ -12,6 +12,14 @@ export interface DirEntry {
   isSymbolicLink: boolean
 }
 
+/** One project file surfaced by the quick-open (⌘P) recursive listing. */
+export interface ProjectFileEntry {
+  name: string
+  path: string
+  /** Path relative to the project root, using the platform separator. */
+  relativePath: string
+}
+
 export interface FileInfo {
   path: string
   size: number
@@ -167,6 +175,7 @@ export interface TerminalSessionInfo {
   active: boolean
   closed: boolean
   updatedAt: number
+  previewLines?: string[]
 }
 
 export interface LayoutSettings {
@@ -365,6 +374,7 @@ export const IPC = {
   },
   fs: {
     readDir: 'fs:readDir',
+    listFiles: 'fs:listFiles',
     fileInfo: 'fs:fileInfo',
     readFile: 'fs:readFile',
     writeMarkdown: 'fs:writeMarkdown',
@@ -415,6 +425,7 @@ export interface StudioApi {
   selectProject: () => Promise<IpcResult<ProjectInfo | null>>
   getCurrentProject: () => Promise<IpcResult<ProjectInfo | null>>
   readDir: (dirPath: string) => Promise<IpcResult<DirEntry[]>>
+  listProjectFiles: () => Promise<IpcResult<ProjectFileEntry[]>>
   getFileInfo: (filePath: string) => Promise<IpcResult<FileInfo>>
   readFile: (filePath: string) => Promise<IpcResult<ReadFileResult>>
   writeMarkdown: (filePath: string, content: string) => Promise<IpcResult<WriteFileResult>>
