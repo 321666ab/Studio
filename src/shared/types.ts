@@ -20,6 +20,26 @@ export interface ProjectFileEntry {
   relativePath: string
 }
 
+/** One matched line from the project-wide content search (⌘⇧F). */
+export interface ContentSearchMatch {
+  path: string
+  relativePath: string
+  /** 1-based line number of the hit. */
+  line: number
+  /** Display text, possibly clipped to a window around the hit. */
+  lineText: string
+  /** Highlight range within lineText. */
+  matchStart: number
+  matchEnd: number
+}
+
+export interface ContentSearchResult {
+  matches: ContentSearchMatch[]
+  filesScanned: number
+  /** True when result caps were hit — more matches exist than returned. */
+  truncated: boolean
+}
+
 export interface FileInfo {
   path: string
   size: number
@@ -375,6 +395,7 @@ export const IPC = {
   fs: {
     readDir: 'fs:readDir',
     listFiles: 'fs:listFiles',
+    searchContent: 'fs:searchContent',
     fileInfo: 'fs:fileInfo',
     readFile: 'fs:readFile',
     writeMarkdown: 'fs:writeMarkdown',
@@ -382,7 +403,8 @@ export const IPC = {
     quickLook: 'fs:quickLook',
     showPathContextMenu: 'fs:showPathContextMenu',
     estimateContext: 'fs:estimateContext',
-    openExternalUrl: 'fs:openExternalUrl'
+    openExternalUrl: 'fs:openExternalUrl',
+    onChanged: 'fs:onChanged'
   },
   pty: {
     create: 'pty:create',
@@ -426,6 +448,7 @@ export interface StudioApi {
   getCurrentProject: () => Promise<IpcResult<ProjectInfo | null>>
   readDir: (dirPath: string) => Promise<IpcResult<DirEntry[]>>
   listProjectFiles: () => Promise<IpcResult<ProjectFileEntry[]>>
+  searchProjectContent: (query: string) => Promise<IpcResult<ContentSearchResult>>
   getFileInfo: (filePath: string) => Promise<IpcResult<FileInfo>>
   readFile: (filePath: string) => Promise<IpcResult<ReadFileResult>>
   writeMarkdown: (filePath: string, content: string) => Promise<IpcResult<WriteFileResult>>
@@ -436,6 +459,8 @@ export interface StudioApi {
   ) => Promise<IpcResult<PathContextMenuResult | null>>
   estimateContext: (paths: string[]) => Promise<IpcResult<AgentContextEstimate>>
   openExternalUrl: (url: string) => Promise<IpcResult<void>>
+  /** Directory paths whose listings changed on disk ('*' = refresh all). */
+  onFsChanged: (listener: (dirs: string[]) => void) => () => void
   pty: {
     create: (options: PtyCreateOptions) => Promise<IpcResult<void>>
     input: (terminalId: string, data: string) => void

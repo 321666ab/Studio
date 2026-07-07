@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChevronRight, File, Folder, FolderOpen } from 'lucide-react'
 import type { DirEntry } from '../../shared/types'
 import { api } from '../lib/api'
@@ -47,6 +47,20 @@ function TreeNode({
       }
     }
   }, [open, children, loading, entry.path])
+
+  // Keep an expanded directory current when its listing changes on disk
+  // (agents editing files from the terminal are the usual producer).
+  const hasChildren = children !== null
+  useEffect(() => {
+    if (!open || !hasChildren) return
+    return api.onFsChanged((dirs) => {
+      if (!dirs.includes('*') && !dirs.includes(entry.path)) return
+      void api
+        .readDir(entry.path)
+        .then(setChildren)
+        .catch(() => undefined) // dir may have just been deleted — parent will drop us
+    })
+  }, [open, hasChildren, entry.path])
 
   const selected = selectedPath === entry.path
   const indent = 8 + depth * 14

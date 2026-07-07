@@ -3085,6 +3085,42 @@ button {
   animation: settings-in var(--motion);
 }
 
+.quick-open-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 8px 10px 0;
+}
+
+.quick-open-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+}
+
+.quick-open-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.quick-open-tab.active {
+  background: var(--bg-selected);
+  color: var(--accent-strong);
+}
+
+.quick-open-tab kbd {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  opacity: 0.7;
+}
+
 .quick-open-field {
   display: flex;
   align-items: center;
@@ -3166,6 +3202,52 @@ button {
   background: transparent;
   color: var(--accent-strong);
   font-weight: 650;
+}
+
+.quick-open-item.content {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 7px 9px;
+}
+
+.quick-open-match-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.quick-open-match-head .quick-open-path {
+  flex: 0 1 auto;
+}
+
+.quick-open-line {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.quick-open-match-line {
+  overflow: hidden;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-open-match-line mark {
+  background: var(--bg-selected);
+  color: var(--accent-strong);
+  font-weight: 650;
+  border-radius: 3px;
+}
+
+.quick-open-foot-stat {
+  margin-left: auto;
 }
 
 .quick-open-empty {

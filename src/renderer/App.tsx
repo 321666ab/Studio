@@ -21,7 +21,7 @@ import {
   DocumentWorkspace,
   type OpenDocumentRequest
 } from './components/DocumentWorkspace'
-import { QuickOpen } from './components/QuickOpen'
+import { QuickOpen, type QuickOpenMode } from './components/QuickOpen'
 import { RightPanel, type RightPanelHandle } from './components/RightPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { useAppearance } from './hooks/useAppearance'
@@ -49,7 +49,7 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<DirEntry | null>(null)
   const [openRequest, setOpenRequest] = useState<OpenDocumentRequest | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [quickOpenOpen, setQuickOpenOpen] = useState(false)
+  const [quickOpenMode, setQuickOpenMode] = useState<QuickOpenMode | null>(null)
   const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
   const [systemColorScheme, setSystemColorScheme] = useState<ResolvedColorScheme>('light')
   const [agentAvailability, setAgentAvailability] = useState<AgentAvailability[]>([])
@@ -129,6 +129,19 @@ export function App(): JSX.Element {
   useEffect(() => {
     void api.agentAvailability().then(setAgentAvailability).catch(() => setAgentAvailability([]))
   }, [settingsOpen])
+
+  // Refresh the tree's top level when the project root changes on disk,
+  // without resetting selection or open tabs the way loadRoots does.
+  useEffect(() => {
+    if (!project) return
+    return api.onFsChanged((dirs) => {
+      if (!dirs.includes('*') && !dirs.includes(project.root)) return
+      void api
+        .readDir(project.root)
+        .then(setRoots)
+        .catch(() => undefined)
+    })
+  }, [project])
 
   const openProject = useCallback(async () => {
     setTreeError(null)
@@ -225,11 +238,18 @@ export function App(): JSX.Element {
       ) {
         e.preventDefault()
         e.stopImmediatePropagation()
-        setQuickOpenOpen((current) => !current)
+        // Open in files mode, switch to it, or close when already there.
+        setQuickOpenMode((current) => (current === 'files' ? null : 'files'))
+        return
+      }
+      if (e.metaKey && !e.ctrlKey && !e.altKey && e.shiftKey && e.code === 'KeyF') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setQuickOpenMode((current) => (current === 'content' ? null : 'content'))
         return
       }
       // While the quick-open palette is up, leave the keyboard to it.
-      if (quickOpenOpen) return
+      if (quickOpenMode !== null) return
       // Match by physical key too: on macOS Option+B yields key '∫', which
       // would otherwise break ⌘⌥B while Option is held.
       if (e.metaKey && (e.key === 'b' || e.key === 'B' || e.code === 'KeyB')) {
@@ -260,7 +280,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [panels, quickOpenOpen, runHotkey, settings.hotkeys, settingsOpen])
+  }, [panels, quickOpenMode, runHotkey, settings.hotkeys, settingsOpen])
 
   const appearanceStyle = {
     '--panel-opacity': appearance.panelOpacity,
@@ -376,6 +396,7 @@ export function App(): JSX.Element {
         <div className="col col-center">
           <DocumentWorkspace
             key={project?.root ?? 'no-project'}
+            projectRoot={project?.root ?? null}
             request={openRequest}
             onOpenExternal={openExternal}
           />
@@ -409,10 +430,12 @@ export function App(): JSX.Element {
       </div>
 
       <QuickOpen
-        open={quickOpenOpen}
+        open={quickOpenMode !== null}
+        mode={quickOpenMode ?? 'files'}
         projectRoot={project?.root ?? null}
+        onModeChange={setQuickOpenMode}
         onPick={openQuickOpenPick}
-        onClose={() => setQuickOpenOpen(false)}
+        onClose={() => setQuickOpenMode(null)}
       />
 
       <SettingsPanel

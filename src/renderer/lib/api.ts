@@ -7,6 +7,7 @@ import type {
   AgentTaskRequest,
   ApplyChangesRequest,
   ApplyChangesResult,
+  ContentSearchResult,
   DirEntry,
   FileInfo,
   HotkeyTriggerEvent,
@@ -44,6 +45,9 @@ export const api = {
   async listProjectFiles(): Promise<ProjectFileEntry[]> {
     return unwrap(await window.studio.listProjectFiles())
   },
+  async searchProjectContent(query: string): Promise<ContentSearchResult> {
+    return unwrap(await window.studio.searchProjectContent(query))
+  },
   async getFileInfo(filePath: string): Promise<FileInfo> {
     return unwrap(await window.studio.getFileInfo(filePath))
   },
@@ -69,6 +73,10 @@ export const api = {
   },
   async openExternalUrl(url: string): Promise<void> {
     return unwrap(await window.studio.openExternalUrl(url))
+  },
+  /** Directory listings changed on disk ('*' means refresh everything). */
+  onFsChanged(listener: (dirs: string[]) => void): () => void {
+    return window.studio.onFsChanged(listener)
   },
   // --- Settings ----------------------------------------------------------
   async getSettings(): Promise<Settings> {

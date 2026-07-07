@@ -9,6 +9,7 @@ import type {
   AgentTaskRequest,
   ApplyChangesRequest,
   ApplyChangesResult,
+  ContentSearchResult,
   DirEntry,
   FileInfo,
   HotkeyTriggerEvent,
@@ -37,6 +38,8 @@ const api: StudioApi = {
     ipcRenderer.invoke(IPC.fs.readDir, dirPath) as Promise<IpcResult<DirEntry[]>>,
   listProjectFiles: () =>
     ipcRenderer.invoke(IPC.fs.listFiles) as Promise<IpcResult<ProjectFileEntry[]>>,
+  searchProjectContent: (query: string) =>
+    ipcRenderer.invoke(IPC.fs.searchContent, query) as Promise<IpcResult<ContentSearchResult>>,
   getFileInfo: (filePath: string) =>
     ipcRenderer.invoke(IPC.fs.fileInfo, filePath) as Promise<IpcResult<FileInfo>>,
   readFile: (filePath: string) =>
@@ -57,6 +60,11 @@ const api: StudioApi = {
     ipcRenderer.invoke(IPC.fs.estimateContext, paths) as Promise<IpcResult<AgentContextEstimate>>,
   openExternalUrl: (url: string) =>
     ipcRenderer.invoke(IPC.fs.openExternalUrl, url) as Promise<IpcResult<void>>,
+  onFsChanged: (listener: (dirs: string[]) => void) => {
+    const handler = (_e: unknown, dirs: string[]) => listener(dirs)
+    ipcRenderer.on(IPC.fs.onChanged, handler)
+    return () => ipcRenderer.removeListener(IPC.fs.onChanged, handler)
+  },
   pty: {
     create: (options: PtyCreateOptions) =>
       ipcRenderer.invoke(IPC.pty.create, options) as Promise<IpcResult<void>>,

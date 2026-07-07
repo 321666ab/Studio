@@ -40,6 +40,8 @@ import {
   readFileText,
   writeMarkdown
 } from './fileService.js'
+import { searchProjectContent } from './contentSearch.js'
+import { ProjectWatcher } from './fsWatcher.js'
 import { PtyManager, registerPtyHandlers } from './pty.js'
 import { resolveWithinRoot } from './security.js'
 import { SettingsStore, defaultSettingsPath } from './settings.js'
@@ -61,6 +63,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
 let ptyManager: PtyManager | null = null
+const projectWatcher = new ProjectWatcher((dirs) =>
+  mainWindow?.webContents.send(IPC.fs.onChanged, dirs)
+)
 let quickLookService: QuickLookService | null = null
 let settingsStore: SettingsStore | null = null
 let agentAvailability: AgentAvailabilityCache | null = null
@@ -226,6 +231,7 @@ function registerHandlers(): void {
       })
       if (result.canceled || result.filePaths.length === 0) return ok(null)
       const info = await projectState.set(result.filePaths[0])
+      projectWatcher.start(info.root)
       await requireSettings().update({ general: { lastProjectPath: info.root } })
       // Switching projects tears down any live shell.
       ptyManager?.disposeAll()
@@ -253,6 +259,15 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.fs.listFiles, async () => {
     try {
       return ok(await listProjectFiles(projectState.requireRoot()))
+    } catch (err) {
+      return fail(err)
+    }
+  })
+
+  ipcMain.handle(IPC.fs.searchContent, async (_e, query: string) => {
+    try {
+      if (typeof query !== 'string') throw new Error('搜索词无效')
+      return ok(await searchProjectContent(projectState.requireRoot(), query))
     } catch (err) {
       return fail(err)
     }
@@ -590,6 +605,8 @@ app.whenReady().then(async () => {
   if (initialSettings.general.restoreLastProject && initialSettings.general.lastProjectPath) {
     await projectState.set(initialSettings.general.lastProjectPath).catch(() => undefined)
   }
+  const restoredRoot = projectState.get()?.root
+  if (restoredRoot) projectWatcher.start(restoredRoot)
   agentAvailability = new AgentAvailabilityCache()
   const getAgentExecutable = async (provider: 'claude' | 'codex'): Promise<string> => {
     const result = (await requireAvailability().get(Date.now())).find(
@@ -646,6 +663,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  projectWatcher.stop()
   registeredHotkeyAccelerators.forEach((accelerator) => globalShortcut.unregister(accelerator))
   registeredHotkeyAccelerators.clear()
 })

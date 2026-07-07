@@ -26,6 +26,15 @@ model identifiers, bypass behavior, task timeout, notifications, terminal
 display, and appearance. Settings are stored as versioned JSON under Electron's
 macOS user-data directory.
 
+`⌘P` opens the quick-open palette (fuzzy file-name search with recent files
+first); `⇧⌘F` switches it to project-wide content search, which runs in the
+main process, skips binary and oversized files, and highlights matched lines.
+Open tabs, split panes, and the active document are persisted per project and
+restored on relaunch (tabs whose files vanished are dropped). The file tree
+watches the project via FSEvents and refreshes expanded directories
+automatically when files change on disk — e.g. while an agent edits the
+project from the terminal.
+
 The file tree supports a native right-click action for copying a project-relative
 path or adding a file/directory to the AI context basket. The Tasks view discovers
 Claude bundled, user, project, and installed-plugin Skills, shows a 24K-token

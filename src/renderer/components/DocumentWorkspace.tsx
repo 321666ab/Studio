@@ -1,6 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Columns2, PanelLeft, X } from 'lucide-react'
 import type { DirEntry } from '../../shared/types'
+import { api } from '../lib/api'
+import {
+  loadWorkspaceSession,
+  saveWorkspaceSession,
+  type WorkspaceSession
+} from '../lib/workspaceSession'
 import { Viewer } from './Viewer'
 
 export interface OpenDocumentRequest {
@@ -15,11 +21,13 @@ interface PaneState {
 }
 
 interface DocumentWorkspaceProps {
+  projectRoot: string | null
   request: OpenDocumentRequest | null
   onOpenExternal: (path: string) => void
 }
 
 export function DocumentWorkspace({
+  projectRoot,
   request,
   onOpenExternal
 }: DocumentWorkspaceProps): JSX.Element {
@@ -28,6 +36,76 @@ export function DocumentWorkspace({
   ])
   const [focusedPane, setFocusedPane] = useState<'left' | 'right'>('left')
   const [dirtyPaths, setDirtyPaths] = useState<Record<string, boolean>>({})
+  // Persistence stays off until the stored session has been restored (or found
+  // absent), so the initial empty state never clobbers a saved one.
+  const [sessionReady, setSessionReady] = useState(false)
+  const restoreNonce = useRef(0)
+
+  // Restore the previous tab set for this project; drop tabs whose files are
+  // gone. The component remounts per project (keyed by root in App).
+  useEffect(() => {
+    if (!projectRoot) {
+      setSessionReady(true)
+      return
+    }
+    const nonce = (restoreNonce.current += 1)
+    const stored = loadWorkspaceSession(projectRoot)
+    if (!stored) {
+      setSessionReady(true)
+      return
+    }
+    void (async () => {
+      const alive = new Set<string>()
+      const paths = stored.panes.flatMap((pane) => pane.tabs.map((tab) => tab.path))
+      await Promise.all(
+        paths.map(async (path) => {
+          try {
+            const info = await api.getFileInfo(path)
+            if (!info.isDirectory) alive.add(path)
+          } catch {
+            /* deleted or moved — drop the tab */
+          }
+        })
+      )
+      if (restoreNonce.current !== nonce) return
+      const panes: PaneState[] = stored.panes
+        .map((pane) => {
+          const tabs = pane.tabs
+            .filter((tab) => alive.has(tab.path))
+            .map((tab) => ({
+              name: tab.name,
+              path: tab.path,
+              isDirectory: false,
+              isSymbolicLink: false
+            }))
+          const activePath =
+            pane.activePath && tabs.some((tab) => tab.path === pane.activePath)
+              ? pane.activePath
+              : (tabs[0]?.path ?? null)
+          return { id: pane.id, tabs, activePath }
+        })
+        // A restored right pane with no surviving tabs closes the split.
+        .filter((pane) => pane.id === 'left' || pane.tabs.length > 0)
+      if (panes.length > 0 && panes.some((pane) => pane.tabs.length > 0)) {
+        setPanes(panes)
+        setFocusedPane(panes.some((pane) => pane.id === stored.focusedPane) ? stored.focusedPane : 'left')
+      }
+      setSessionReady(true)
+    })()
+  }, [projectRoot])
+
+  useEffect(() => {
+    if (!projectRoot || !sessionReady) return
+    const session: WorkspaceSession = {
+      panes: panes.map((pane) => ({
+        id: pane.id,
+        tabs: pane.tabs.map((tab) => ({ name: tab.name, path: tab.path })),
+        activePath: pane.activePath
+      })),
+      focusedPane
+    }
+    saveWorkspaceSession(projectRoot, session)
+  }, [focusedPane, panes, projectRoot, sessionReady])
 
   useEffect(() => {
     if (!request) return
